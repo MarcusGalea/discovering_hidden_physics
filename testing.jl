@@ -4,47 +4,9 @@ Pkg.activate(".")
 
 using DifferentialEquations
 using ModelingToolkit
-using MLJ
-#Pkg.UPDATED_REGISTRY_THIS_SESSION[] = true
-
-
-## LORENZ ATTRACTOR
-@parameters σ ρ β
-@variables t x(t) y(t) z(t)
-D = Differential(t)
-
-eqs = [D(x) ~ σ * (y - x),
-    D(y) ~ x * (ρ - z) - y,
-    D(z) ~ x * y - β * z]
-
-# Define the system
-@named sys = ODESystem(eqs, t, [x, y, z], [σ, ρ, β])
-# sys = structural_simplify(sys)
-# Define the initial conditions and parameters
-u0 = [
-    x => 1.0,
-    y => 0.0,
-    z => 0.0]
-
-p = [σ => 10.0,
-    ρ => 28.0,
-    β => 8/3]
-
-# Define the time span
-timesteps = collect(0.0:0.01:20.0)
-
-# Simulate the system
-prob = ODEProblem(sys, u0,(timesteps[1], timesteps[end]) ,p, saveat = timesteps)
-sol = solve(prob)
-
-using Plots
-#plot 3d phase space
-plot(sol,label = "True", title = "Lorenz Attractor", lw = 2, dpi = 600, idxs = (1,2,3))
-
-using MLJ
 using DataDrivenDiffEq
 using DataDrivenSparse
-
+using DocStringExtensions
 # Create a test problem
 function lorenz(u, p, t)
     x, y, z = u
@@ -66,11 +28,94 @@ ddprob = DataDrivenProblem(sol)
 
 @variables t x(t) y(t) z(t)
 u = [x; y; z]
-basis = Basis(polynomial_basis(u, 5), u, iv = t)
-opt = STLSQ2(exp10.(-5:0.1:-1))
+basis = Basis(polynomial_basis(u, 2), u, iv = t)
+
+
+
+using Symbolics
+using LinearAlgebra
+
+using Plots
+X = ddprob.X
+DX = ddprob.DX
+t = ddprob.t
+#evaluate basis at the data points
+Θ = basis(X,[],t)'
+
+
+
+n,m = length(basis), size(ddprob)[1]
+@parameters Ξ[1:n, 1:m] # Ξ is the coefficient matrix
+# ξ is vectorized version of Ξ
+ξ = vec(Ξ)
+constraints = [
+    ξ[3] ~  10;
+    ξ[2] + ξ[3] ~ 0
+]
+
+
+
+"""
+create_block_diag_matrix function takes in a matrix and the number of copies and returns a block diagonal matrix with the given number of copies of the input matrix
+    $(TYPEDSIGNATURES)
+"""
+function blockdiags(block, n)
+    # Get the size of each block
+    m, p = size(block)
+    # Initialize the block diagonal matrix
+    result = zeros(m*n, p*n)
+    # Fill the block diagonal matrix
+    for i in 1:n
+        result[(i-1)*m+1:i*m, (i-1)*p+1:i*p] = block
+    end
+    return result
+end
+
+"""
+linear_system function takes in the constraints and the coefficient matrix Ξ and returns the linear system of equations
+    $(TYPEDSIGNATURES)
+
+# Arguments
+- `constraints::Array{Equation}`: An array of equations
+- `Ξ::AbstractMatrix`: The coefficient matrix
+
+# Returns
+- `C::AbstractMatrix`: The matrix of coefficients
+- `d::AbstractVector`: The right hand side of the equations
+"""
+function linear_system(constraints, Ξ)
+    n,m = size(Ξ)
+    C = zeros(length(constraints), n*m)
+    d = zeros(length(constraints))
+    for (k, eq) in enumerate(constraints)
+        d[k] = eq.rhs
+        lhs = eq.lhs
+        for var in get_variables(lhs)
+            idx = findfirst(isequal(var), vec(Ξ))
+            #get coefficient for variable in the equation
+            C[k, idx] = Symbolics.coeff(lhs, var)
+        end
+    end
+    return C, d
+end
+
+C,d = linear_system(constraints, hcat(Ξ))
+C
+
+
+diagm
+
+opt = STLSQ(exp10.(-5:0.1:-1))
 ddsol = solve(ddprob, basis, opt, options = DataDrivenCommonOptions(digits = 1))
 println(get_basis(ddsol))
 println(get_parameter_map(get_basis(ddsol)))
+
+
+
+
+diag
+
+
 
 
 A = ddprob.X

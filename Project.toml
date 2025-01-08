@@ -1,0 +1,11 @@
+[deps]
+Catalyst = "479239e8-5488-4da2-87a7-35f2df7eef83"
+CommonSolve = "38540f10-b2f7-11e9-35d8-d573e4eb0ff2"
+DataDrivenDiffEq = "2445eb08-9709-466a-b3fc-47e12bd697a2"
+DataDrivenSparse = "5b588203-7d8b-4fab-a537-c31a7f73f46b"
+DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
+Lux = "b2108857-7c20-44ae-9111-449ecde12c47"
+MLJ = "add582a8-e3ab-11e8-2d5e-e98b27df1bc7"
+MLJModelInterface = "e80e1ace-859a-464e-9ed9-23947d8ae3ea"
+ModelingToolkit = "961ee093-0014-501f-94e3-6117800e7a78"
+Optimization = "7f7a1694-90dd-40f0-9382-eb1efda571ba"

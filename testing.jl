@@ -39,8 +39,6 @@ using Plots
 X = ddprob.X
 DX = ddprob.DX
 t = ddprob.t
-#evaluate basis at the data points
-Θ = basis(X,[],t)'
 
 
 
@@ -54,6 +52,14 @@ constraints = [
 ]
 
 
+#### EXPERIMENTAL
+#evaluate basis at the data points
+Θ = basis(X,[],t)'
+C,d = linear_system(constraints, hcat(Ξ)) 
+
+A = vcat(hcat(blockdiags(Θ'Θ, length(u)),C'), hcat(C, zeros(size(C,1),size(C,1))))
+b = vcat(vec(Θ'*DX'),d)
+Θ_est= A\b
 
 """
 create_block_diag_matrix function takes in a matrix and the number of copies and returns a block diagonal matrix with the given number of copies of the input matrix

@@ -6,7 +6,7 @@ using DifferentialEquations
 using ModelingToolkit
 using DataDrivenDiffEq
 using DataDrivenSparse
-using DocStringExtensions
+using Plots
 
 
 # Create a test problem
@@ -20,7 +20,7 @@ function lorenz(u, p, t)
 end
 
 u0 = [1.0; 0.0; 0.0]
-tspan = (0.0, 100.0)
+tspan = (0.0, 20.0)
 dt = 0.1
 prob = ODEProblem(lorenz, u0, tspan)
 sol = solve(prob, Tsit5(), saveat = dt)
@@ -32,202 +32,93 @@ ddprob = DataDrivenProblem(sol)
 u = [x; y; z]
 basis = Basis(polynomial_basis(u, 2), u, iv = t)
 
-using Symbolics
-using LinearAlgebra
-using Plots
-X = ddprob.X
-DX = ddprob.DX
-
 @show equations(basis)
 n,m = length(basis), size(ddprob)[1]
 @parameters Ξ[1:n, 1:m] # Ξ is the coefficient matrix
 # ξ is vectorized version of Ξ
-ξ = vec(Ξ)
+
+
+# ξ = vec(Ξ)
 constraints = [
-    ξ[4] ~  10;
-    ξ[2] + ξ[4] ~ 0
-] 
+    Ξ[4,1] ~  10;
+    Ξ[2,1] + Ξ[4,1] ~ 0
+]
 n_c = length(constraints)
 
 #### EXPERIMENTAL
 
 λ = 1e-5
 
-#evaluate basis at the data points
-Θ = basis(X,[],ddprob.t)'
-C,d = linear_system(constraints, hcat(Ξ))
-n_c = length(d)
-A = vcat(hcat(blockdiags(Θ'Θ, m),C'), hcat(C, zeros(n_c,n_c)))
-b = vcat(vec(Θ'*DX'),d)
-ξ_est= (A\b)[1:end-n_c]
+solbasis = solve(ddprob, basis, opt, options = DataDrivenCommonOptions())
+
+# Integrate the equations in solbasis
+
+@named odesys = ODESystem(equations(solbasis), get_iv(solbasis), states(solbasis), parameters(solbasis), tspan = (0.0, 100.0))
+odesys = structural_simplify(odesys)
+
+u0map = Dict(zip(states(solbasis), u0))
+pmap = get_parameter_map(solbasis)
+prob = ODEProblem(odesys, u0map, tspan, pmap)
+sol = solve(prob, Tsit5(), saveat = dt)
+plot(sol)
+
+model = solbasis(ddprob.X,get_parameter_values(solbasis), ddprob.t)
+plot(DX'[1:400,1])
+plot!(model'[1:400,1])
+using CommonSolve
 
 
-#find elements close to zero in ξ_est
-zero_entries = []
-non_zero_entries = [entry for entry in 1:length(ξ_est) if entry ∉ zero_entries]
-all_zero_entries = findall(x->abs(x)<λ, ξ_est) #change this
-new_zero_entries = [entry for entry in all_zero_entries if entry ∉ zero_entries]
-zero_entries = all_zero_entries
-#non zero entries
-non_zero_entries = [entry for entry in 1:length(ξ_est) if entry ∉ zero_entries]
-
-mutable struct ConstrainedSTLSQ{T}
-    """ λ is the threshold of the iteration """
-    λ::T
-    """ constraints is the list of constraints """
-    constraints::Vector{Equation}
-    """ Ξ is the symbolic coefficient matrix """
-    Ξ::AbstractMatrix
+function rel_error(cache::ConstrainedSTLSQcache)
+    return rss(cache)/norm(cache.DX)
 end
 
-mutable struct ConstrainedSTLSQcache
-    """ opt is the optimization algorithm """
-    opt::ConstrainedSTLSQ
-    """ Ξ_est is the estimated coefficient matrix """
-    Ξ_est::AbstractMatrix
-    """ zero_entries is the indices of the zero entries """
-    zero_entries::Vector{Int}
-    """ C is the matrix of constraint coefficients """
-    C::AbstractMatrix
-    """ d is the right hand side of the constraint equations """
-    d::AbstractVector
-    """ Θ is the basis evaluated at the data points """
-    Θ::AbstractMatrix
-    """ DX is the derivative of the data points """
-    DX::AbstractMatrix
-    ConstrainedSTLSQcache(opt::ConstrainedSTLSQ, Ξ_est, zero_entries, C, d, Θ, DX) = new(opt, Ξ_est, zero_entries, C, d, Θ, DX)
-    ConstrainedSTLSQcache(opt::ConstrainedSTLSQ, ddprob::DataDrivenDiffEq.DataDrivenProblem) = initialize_cache(opt, ddprob)
+function StatsBase.residuals(cache::ConstrainedSTLSQcache)
+    @unpack Ξ_est, Θ, DX = cache
+    return Θ*Ξ_est - DX
 end
 
-
-function initialize_cache(opt::ConstrainedSTLSQ, ddprob::DataDrivenDiffEq.DataDrivenProblem)
-    @unpack constraints, Ξ = opt
-    @unpack X, DX = ddprob
-    Θ = basis(X,[],ddprob.t)'
-    C,d = linear_system(constraints, hcat(Ξ))
-    zero_entries = []
-    return ConstrainedSTLSQcache(opt, hcat(Ξ), zero_entries, C, d, Θ, DX')
+function StatsBase.rss(cache::ConstrainedSTLSQcache)
+    return sum(abs2, residuals(cache))
 end
 
-function step!(cache::ConstrainedSTLSQcache)
-    @unpack opt, Ξ_est, zero_entries, C, d, Θ, DX = cache
-    @unpack λ, constraints, Ξ = opt
-    A = vcat(hcat(blockdiags(Θ'Θ, size(DX,2)),C'), hcat(C, zeros(length(d),length(d))))
-    b = vcat(vec(Θ'*DX),d)
-    ξ_est = (A\b)[1:end-length(d)]
+function StatsBase.dof(cache::ConstrainedSTLSQcache)
+    @unpack zero_entries = cache
+    return length(zero_entries)
+end
 
-    threshold = get_threshold(cache, ξ_est)
-    zero_entries = findall(x->abs(x)<threshold, ξ_est)
-    ξ_est[zero_entries] .= 0
-    cache.Ξ_est = reshape(ξ_est, size(Ξ))
+function create_solution_basis(cache::ConstrainedSTLSQcache)
+    @unpack basis, opt, Ξ_est, zero_entries = cache
+    @unpack Ξ = opt
 
-    new_zeros = [entry for entry in zero_entries if entry ∉ cache.zero_entries]
-    new_constraints = [ξ[entry] ~ 0 for entry in new_zeros]
-    for constraint in new_constraints
-        C,d = add_constraint(constraint, C, d, Ξ)
+    ξ_sym_sol = vec(hcat(Ξ))
+    ξ_est = vec(Ξ_est)
+    ξ_sym_sol[zero_entries] .= 0
+    Ξ_sym_sol = reshape(ξ_sym_sol, size(Ξ))
+    D = Differential(basis.iv)
+
+    non_zero_entries = [entry for entry in 1:length(ξ_sym_sol) if entry ∉ zero_entries]
+
+    parameter_values =ξ_est[non_zero_entries]
+    # Create a basis with the non-zero entries and the values set to cache.Ξ_est
+
+    p_new = map(eachindex(parameter_values)) do i
+        _set_default_val(ξ_sym_sol[non_zero_entries[i]], parameter_values[i])
     end
-    cache.C = C
-    cache.d = d
-    cache.zero_entries = zero_entries
-end
 
-function get_threshold(cache::ConstrainedSTLSQcache, ξ_est)
-    non_zero_entries = [entry for entry in 1:length(ξ_est) if entry ∉ cache.zero_entries]
-    meanabsval = sum(abs.(ξ_est[non_zero_entries]))/length(non_zero_entries)
-    return cache.opt.λ*meanabsval
-end
-    
-    
-opt = ConstrainedSTLSQ(1e-5, constraints, hcat(Ξ))
-cache = ConstrainedSTLSQcache(opt, ddprob)
-step!(cache)
-
-for entry in new_zero_entries
-    #add constraint to the list of constraints
-    C,d = add_constraint(ξ[entry] ~ 0, C, d, hcat(Ξ))
-end
-
-ξ_sym_sol = copy(ξ)
-ξ_sym_sol[zero_entries] .= 0
-Ξ_sym_sol = reshape(ξ_sym_sol, size(Ξ))
-Ξ_sym_sol'*rhs.(equations(basis))
-
-D = Differential(t)
-D.(u).~Ξ_sym_sol'*rhs.(equations(basis))
-
-Basis(D.(u).~Ξ_sym_sol'*rhs.(equations(basis)),u,iv=t, parameters=ξ)
-
-"""
-rhs function takes in an equation and returns the right hand side of the equation
-    $(TYPEDSIGNATURES)
-"""
-function rhs(equation::Equation)
-    return equation.rhs
-end
-
-#set elements close to zero to zero
-ξ_est[zero_entries] .= 0
-Ξ_est =reshape(ξ_est, size(Ξ))
-
-
-"""
-create_block_diag_matrix function takes in a matrix and the number of copies and returns a block diagonal matrix with the given number of copies of the input matrix
-    $(TYPEDSIGNATURES)
-"""
-function blockdiags(block, n)
-    # Get the size of each block
-    m, p = size(block)
-    # Initialize the block diagonal matrix
-    result = zeros(m*n, p*n)
-    # Fill the block diagonal matrix
-    for i in 1:n
-        result[(i-1)*m+1:i*m, (i-1)*p+1:i*p] = block
-    end
-    return result
-end
-
-"""
-linear_system function takes in the constraints and the coefficient matrix Ξ and returns the linear system of equations
-    $(TYPEDSIGNATURES)
-
-# Arguments
-- `constraints::Array{Equation}`: An array of equations
-- `Ξ::AbstractMatrix`: The coefficient matrix
-
-# Returns
-- `C::AbstractMatrix`: The matrix of coefficients
-- `d::AbstractVector`: The right hand side of the equations
-"""
-function linear_system(constraints, Ξ)
-    n,m = size(Ξ)
-    C = zeros(length(constraints), n*m)
-    d = zeros(length(constraints))
-    for (k, eq) in enumerate(constraints)
-        d[k] = eq.rhs
-        lhs = eq.lhs
-        for var in get_variables(lhs)
-            idx = findfirst(isequal(var), vec(Ξ))
-            #get coefficient for variable in the equation
-            C[k, idx] = Symbolics.coeff(lhs, var)
-        end
-    end
-    return C, d
-end
-
-function add_constraint(constraint, C, d, Ξ)
-    d = vcat(d, constraint.rhs)
-    lhs = constraint.lhs
-    for var in get_variables(lhs)
-        idx = findfirst(isequal(var), vec(Ξ))
-        C = vcat(C, zeros(1, size(C,2)))
-        C[end, idx] = Symbolics.coeff(lhs, var)
-    end
-    return C, d
+    u = states(basis)
+    solbasis = Basis(D.(u).~Ξ_sym_sol'*rhs.(equations(basis)),
+                        u,
+                        iv=get_iv(basis),
+                        parameters = p_new,
+                        controls = controls(basis),
+                        #implicits,
+                        name = gensym(:Basis),
+                        #eval explicits
+                        )
+    return solbasis
 end
 
 
-
-C,d = linear_system(constraints, hcat(Ξ))
 
 opt = STLSQ(exp10.(-5:0.1:-1))
 ddsol = solve(ddprob, basis, opt, options = DataDrivenCommonOptions(digits = 1))
@@ -235,4 +126,8 @@ println(get_basis(ddsol))
 println(get_parameter_map(get_basis(ddsol)))
 
 using Plots
+
+plot(
+    plot(ddprob), plot(ddsol), layout = (1,2)
+)
 plot(ddsol)

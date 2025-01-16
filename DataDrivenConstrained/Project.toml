@@ -1,0 +1,13 @@
+name = "DataDrivenConstrained"
+uuid = "638351f1-292c-4b1f-a97e-b1faaf53d9f6"
+authors = ["MarcusGalea <s194336@student.dtu.dk>"]
+version = "0.1.0"
+
+[deps]
+CommonSolve = "38540f10-b2f7-11e9-35d8-d573e4eb0ff2"
+DataDrivenDiffEq = "2445eb08-9709-466a-b3fc-47e12bd697a2"
+DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
+DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Symbolics = "0c5d862f-8b57-4792-8d23-62f2024744c7"
+ModelingToolkit = "961ee093-0014-501f-94e3-6117800e7a78"

@@ -5,6 +5,7 @@ module DataDrivenConstrained
     using ModelingToolkit
     using DifferentialEquations
     using DataDrivenDiffEq
+    using StatsBase
 
     #import types
     include("types.jl")
@@ -12,5 +13,5 @@ module DataDrivenConstrained
 
     #import functions
     include("functions.jl")
-    export step!, solve, create_solution_basis, rel_error, rss
+    export step!, solve, create_solution_basis, rel_error, rss, ODESystem
 end # module DataDrivenConstrained

@@ -7,6 +7,7 @@ using ModelingToolkit
 using DataDrivenDiffEq
 using DataDrivenSparse
 using DocStringExtensions
+using DataDrivenConstrained
 
 
 # Create a test problem
@@ -90,3 +91,4 @@ plot(
     plot(ddprob), plot(ddsol), layout = (1,2)
 )
 plot(ddsol)
+

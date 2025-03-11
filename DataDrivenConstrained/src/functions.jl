@@ -212,7 +212,7 @@ function create_solution_basis(cache::ConstrainedSTLSQcache)
 
     non_zero_entries = [entry for entry in 1:length(ξ_sym_sol) if entry ∉ zero_entries]
 
-    parameter_values =ξ_est[non_zero_entries]
+    parameter_values = ξ_est[non_zero_entries]
     # Create a basis with the non-zero entries and the values set to cache.Ξ_est
 
     p_new = map(eachindex(parameter_values)) do i

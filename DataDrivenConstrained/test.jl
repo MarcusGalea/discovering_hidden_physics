@@ -1,5 +1,5 @@
 using Pkg
-Pkg.activate("DataDrivenConstrained")
+Pkg.activate(".")
 using DataDrivenConstrained
 
 using DifferentialEquations
@@ -22,20 +22,22 @@ end
 
 
 
-
-
 u0 = [1.0; 0.0; 0.0]
-tspan = (0.0, 50.0)
+tspan = (0.0, 100.0)
 dt = 0.1
 prob = ODEProblem(lorenz, u0, tspan)
 sol = solve(prob, Tsit5(), saveat = dt)
 
 ## Start the automatic discovery
-ddprob = DataDrivenProblem(sol)
+ddprob = DataDrivenProblem(sol, use_interpolations = true)
+X = hcat(sol.u...) 
+ddprob2 = ContinuousDataDrivenProblem(X, sol.t, InterpolationMethod()) 
 
-@variables t x(t) y(t) z(t)
+
+@independent_variables t
+@variables x(t) y(t) z(t)
 u = [x; y; z]
-basis = Basis(polynomial_basis(u, 2), u, iv = t)
+basis = Basis([polynomial_basis(u, 2); cos.(u); sin.(u)], u, iv = t)
 
 @show equations(basis)
 n,m = length(basis), length(u)
@@ -49,6 +51,9 @@ constraints = [
 #### EXPERIMENTAL
 
 λ = 1e-5
+
+
+
 opt = DataDrivenConstrained.ConstrainedSTLSQ(λ, Equation[], hcat(Ξ))
 solbasis = solve(ddprob, basis, opt, options = DataDrivenCommonOptions())
 get_parameter_map(solbasis)
@@ -83,7 +88,7 @@ p = plot(layout = (3, 1), size = (800, 600))
 # Plot each variable in its own subfigure with thicker lines
 linewidth = 2
 opacity1 = 1.0
-t_interval = collect(200:1:500)
+t_interval = collect(200:1:400)
 plot!(p, sol.t[t_interval], sol[1,t_interval], label = string(u[1]), color = colors[1], subplot = 1, linewidth = linewidth, alpha = opacity1)
 plot!(p, sol.t[t_interval], sol[2,t_interval], label = string(u[2]), color = colors[1], subplot = 2, linewidth = linewidth, alpha = opacity1)
 plot!(p, sol.t[t_interval], sol[3,t_interval], label = string(u[3]), color = colors[1], subplot = 3, linewidth = linewidth, alpha = opacity1)
@@ -98,3 +103,45 @@ plot!(p, ddsolconstrained.t[t_interval], ddsolconstrained[2,t_interval], label =
 plot!(p, ddsolconstrained.t[t_interval], ddsolconstrained[3,t_interval], label = string(u[3])*"_constrained", linestyle = :dot, color = colors[3], subplot = 3, linewidth = linewidth, alpha = opacity2)
 
 display(p)
+
+
+### MLJ regression
+using MLJBase
+
+mutable struct MLJConstrainedSTLSQ <: MLJBase.Deterministic
+    """ basis is a vector of basis functions to include in the model """
+    basis::Basis
+    """ constraints is a list of constraints """
+    constraints::Vector{Equation}
+    """ λ is the threshold of the iteration """
+    λ::Float64
+    """ Ξ is the symbolic coefficient matrix """
+    Ξ::AbstractMatrix
+    """ interpolation is the interpolation method """
+    interpolation::InterpolationMethod
+end
+
+
+Xt = vcat(sol.t', X)
+
+function fit(model::MLJConstrainedSTLSQ, Xt)
+    X = Xt[2:end,:]
+    t = Xt[1,:]
+    @unpack interpolation = model
+    ddprob = ContinuousDataDrivenProblem(X, t, InterpolationMethod())
+    opt = DataDrivenConstrained.ConstrainedSTLSQ(model.λ, model.constraints, model.Ξ)
+    solbasis = solve(ddprob, model.basis, opt, options = DataDrivenCommonOptions())
+    return solbasis
+end
+
+function predict(model::MLJConstrainedSTLSQ, solbasis, Xt)
+    X = Xt[2:end,:]
+    t = Xt[1,:]
+    pred = solbasis(X,[],t)
+    return pred
+end
+
+# model = MLJConstrainedSTLSQ(basis, constraints, λ, Ξ, InterpolationMethod())
+# @unpack constraints, Ξ = opt
+# @unpack X, DX,t = ddprob
+# Θ = solbasis(X,[], t)'

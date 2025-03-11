@@ -141,7 +141,7 @@ function predict(model::MLJConstrainedSTLSQ, solbasis, Xt)
     return pred
 end
 
-# model = MLJConstrainedSTLSQ(basis, constraints, λ, Ξ, InterpolationMethod())
-# @unpack constraints, Ξ = opt
-# @unpack X, DX,t = ddprob
-# Θ = solbasis(X,[], t)'
+model = MLJConstrainedSTLSQ(basis, constraints, λ, Ξ, InterpolationMethod())
+@unpack constraints, Ξ = opt
+@unpack X, DX,t = ddprob
+Θ = solbasis(X,[], t)'

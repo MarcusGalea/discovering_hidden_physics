@@ -122,11 +122,10 @@ mutable struct MLJConstrainedSTLSQ <: MLJBase.Deterministic
 end
 
 
-Xt = vcat(sol.t', X)
 
-function fit(model::MLJConstrainedSTLSQ, Xt)
-    X = Xt[2:end,:]
-    t = Xt[1,:]
+function fit(model::MLJConstrainedSTLSQ, df)
+    X = hcat(df.x, df.y, df.z)'
+    t = df.t'
     @unpack interpolation = model
     ddprob = ContinuousDataDrivenProblem(X, t, InterpolationMethod())
     opt = DataDrivenConstrained.ConstrainedSTLSQ(model.λ, model.constraints, model.Ξ)
@@ -134,15 +133,22 @@ function fit(model::MLJConstrainedSTLSQ, Xt)
     return solbasis
 end
 
-function predict(model::MLJConstrainedSTLSQ, solbasis, Xt)
-    X = Xt[2:end,:]
-    t = Xt[1,:]
-    pred = solbasis(X,[],t)
+function predict(model::MLJConstrainedSTLSQ, solbasis, df)
+    X = hcat(df.x, df.y, df.z)'
+    t = df.t'
+    odesys = ODESystem(solbasis, tspan)
+    odesys = structural_simplify(odesys)
+
+    u0map = Dict(zip(states(solbasis), u0))
+    pmap = get_parameter_map(solbasis)
+    basisprob = ODEProblem(odesys, u0map, tspan, pmap)
+    ddsol = solve(basisprob, Tsit5(), saveat = dt)
     return pred
 end
 
-# model = MLJConstrainedSTLSQ(basis, constraints, λ, Ξ, InterpolationMethod())
-@unpack constraints, Ξ = opt
-@unpack X, DX,t = ddprob
-get_parameter_values(solbasis)
-Θ = basis(X,get_parameter_values(solbasis), t)'
+using DataFrames
+Xt = vcat(sol.t', X)
+
+df = DataFrame(:t => sol.t, :x => X[1,:], :y => X[2,:], :z => X[3,:])
+#get state from  df 
+statevals = df[:,2:end]

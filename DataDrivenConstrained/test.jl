@@ -7,7 +7,8 @@ using ModelingToolkit
 using DataDrivenDiffEq
 using DataDrivenSparse
 using DocStringExtensions
-
+using DataFrames 
+using Plots
 
 # Create a test problem
 function lorenz(u, p, t)
@@ -28,11 +29,35 @@ dt = 0.1
 prob = ODEProblem(lorenz, u0, tspan)
 sol = solve(prob, Tsit5(), saveat = dt)
 
-## Start the automatic discovery
-ddprob = DataDrivenProblem(sol, use_interpolations = true)
-X = hcat(sol.u...) 
-ddprob2 = ContinuousDataDrivenProblem(X, sol.t, InterpolationMethod()) 
 
+## Start the automatic discovery
+ddprob = DataDrivenProblem(sol, use_interpolations = false)
+X = hcat(sol.u...) 
+df = DataFrame(:t => sol.t, :x => X[1,:], :y => X[2,:], :z => X[3,:])
+
+thirddegBspline(u,t) = BSplineInterpolation(u, t, 3, :Uniform, :Average)
+
+ddprob = ContinuousDataDrivenProblem(X, sol.t, InterpolationMethod(thirddegBspline)) 
+#plot derivative interpolation vs true derivative
+interval = 1:1000
+#log scale
+p1 = plot(layout = (2, 1), size = (800, 600))
+plot!(p1,sol.t[interval],ddprob.DX'[interval,:], label = ["ẋ" "ẏ" "ż"].*"_true", linewidth = 2, legend = :bottomright, title = "True vs Interpolated Derivatives", xlabel = "t", ylabel = "Derivative",subplot = 1)
+plot!(p1, sol.t[interval],ddprob2.DX'[interval,:], label = ["ẋ" "ẏ" "ż"].*"_interpolated", linestyle = :dash, linewidth = 2, subplot = 1)
+display(p1)
+#savefig in plots folder
+savefig(p1, "plots/true_vs_interpolated_derivatives.png")
+#derivative residual
+plot!(p1,sol.t[interval],abs.(ddprob.DX'[interval,:] .- ddprob2.DX'[interval,:]), label = ["ẋ" "ẏ" "ż"].*"_residual", linewidth = 2, legend = :bottomright, title = "Residual of True vs Interpolated Derivatives", xlabel = "t", ylabel = "Residual", subplot = 2)
+
+### exclude part of data due to interpolation error
+curvature = thirddegBspline(ddprob2.DX,ddprob2.t)
+#plot curvature
+plot(p1, ddprob2.t,curvature(ddprob2.t)', label = ["x" "y" "z"], linewidth = 2, title = "Curvature", xlabel = "t", ylabel = "Curvature", subplot = 1)
+#highlight the part of the part of the data that has high curvature
+highcurvetur = abs.(curvature(ddprob2.t)) .>= 0.8*maximum(abs.(curvature(ddprob2.t)))
+#plot high curvature
+#plot!(p1, ddprob2.t[sum(highcurvetur, dims=1)],curvature(ddprob2.t)[highcurvetur]', label = ["x" "y" "z"], linewidth = 2, title = "Curvature", xlabel = "t", ylabel = "Curvature", subplot = 1)
 
 @independent_variables t
 @variables x(t) y(t) z(t)
@@ -50,7 +75,7 @@ constraints = [
 ]
 #### EXPERIMENTAL
 
-λ = 1e-5
+λ = 1e-2
 
 
 
@@ -88,7 +113,7 @@ p = plot(layout = (3, 1), size = (800, 600))
 # Plot each variable in its own subfigure with thicker lines
 linewidth = 2
 opacity1 = 1.0
-t_interval = collect(200:1:400)
+t_interval = collect(1:1:200)
 plot!(p, sol.t[t_interval], sol[1,t_interval], label = string(u[1]), color = colors[1], subplot = 1, linewidth = linewidth, alpha = opacity1)
 plot!(p, sol.t[t_interval], sol[2,t_interval], label = string(u[2]), color = colors[1], subplot = 2, linewidth = linewidth, alpha = opacity1)
 plot!(p, sol.t[t_interval], sol[3,t_interval], label = string(u[3]), color = colors[1], subplot = 3, linewidth = linewidth, alpha = opacity1)
@@ -105,50 +130,49 @@ plot!(p, ddsolconstrained.t[t_interval], ddsolconstrained[3,t_interval], label =
 display(p)
 
 
-### MLJ regression
-using MLJBase
+dfsol = DataFrame(:t => ddsol.t, :x => ddsol[1,:], :y => ddsol[2,:], :z => ddsol[3,:])
 
-mutable struct MLJConstrainedSTLSQ <: MLJBase.Deterministic
-    """ basis is a vector of basis functions to include in the model """
-    basis::Basis
-    """ constraints is a list of constraints """
-    constraints::Vector{Equation}
-    """ λ is the threshold of the iteration """
-    λ::Float64
-    """ Ξ is the symbolic coefficient matrix """
-    Ξ::AbstractMatrix
-    """ interpolation is the interpolation method """
-    interpolation::InterpolationMethod
+function plot_data(df, dfsol, u; ddsolconstrained = nothing, t_interval = collect(1:1:size(dfsol, 1)))
+    num_states = length(u)
+    colors = [:black, :red, :green]
+    linewidth = 2
+    opacity1 = 0.7
+    opacity2 = 0.5
+
+    p = plot(layout = (num_states, 1), size = (800, 600))
+
+    # Plot each variable in its own subfigure with thicker lines and less opacity
+    for i in 1:num_states
+        plot!(p, df.t[t_interval], df[t_interval,i], label = string(u[i]), color = colors[1], subplot = i, linewidth = linewidth, alpha = opacity1)
+        plot!(p, dfsol.t[t_interval], dfsol[t_interval,i], label = string(u[i]) * "_est", linestyle = :dash, color = colors[2], subplot = i, linewidth = linewidth, alpha = opacity2)
+        if !isnothing(ddsolconstrained)
+            plot!(p, ddsolconstrained.t[t_interval], ddsolconstrained[i, t_interval], label = string(u[i]) * "_constrained", linestyle = :dot, color = colors[3], subplot = i, linewidth = linewidth, alpha = opacity2)
+        end
+    end
+
+    display(p)
 end
 
+# Example usage
+plot_data(df, dfsol, u; ddsolconstrained = ddsolconstrained, t_interval = collect(200:1:400))
 
 
-function fit(model::MLJConstrainedSTLSQ, df)
-    X = hcat(df.x, df.y, df.z)'
-    t = df.t'
-    @unpack interpolation = model
-    ddprob = ContinuousDataDrivenProblem(X, t, InterpolationMethod())
-    opt = DataDrivenConstrained.ConstrainedSTLSQ(model.λ, model.constraints, model.Ξ)
-    solbasis = solve(ddprob, model.basis, opt, options = DataDrivenCommonOptions())
-    return solbasis
-end
 
-function predict(model::MLJConstrainedSTLSQ, solbasis, df)
-    X = hcat(df.x, df.y, df.z)'
-    t = df.t'
-    odesys = ODESystem(solbasis, tspan)
-    odesys = structural_simplify(odesys)
-
-    u0map = Dict(zip(states(solbasis), u0))
-    pmap = get_parameter_map(solbasis)
-    basisprob = ODEProblem(odesys, u0map, tspan, pmap)
-    ddsol = solve(basisprob, Tsit5(), saveat = dt)
-    return pred
-end
 
 using DataFrames
 Xt = vcat(sol.t', X)
 
-df = DataFrame(:t => sol.t, :x => X[1,:], :y => X[2,:], :z => X[3,:])
+
+#split dataframe at time 80
+df_train = df[df.t .< 90, :]
+df_test = df[df.t .>= 90, :]
 #get state from  df 
-statevals = df[:,2:end]
+
+model = MLJConstrainedSTLSQ(basis, constraints, λ, hcat(Ξ), InterpolationMethod())
+fitted_model = fit(model, df)
+get_parameter_map(fitted_model)
+pred = predict(fitted_model, df)
+t_interval = collect(1:1:size(df, 1))
+plot_data(df_test, pred, u)
+
+#number of rows in df

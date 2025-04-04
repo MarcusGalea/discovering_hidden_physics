@@ -26,7 +26,7 @@ function CommonSolve.solve(prob::DataDrivenProblem, basis::Basis, opt::Constrain
             break
         end
     end
-    return create_solution_basis(cache)
+    return create_solution_basis(cache),cache
 end
 
 

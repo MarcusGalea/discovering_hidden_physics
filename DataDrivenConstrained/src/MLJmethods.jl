@@ -6,6 +6,8 @@ mutable struct MLJConstrainedSTLSQ <: MLJBase.Deterministic
     basis::Basis
     """ constraints is a list of constraints """
     constraints::Vector{Equation}
+    """ ρ is the regularization parameter """
+    ρ::Float64
     """ λ is the threshold of the iteration """
     λ::Float64
     """ Ξ is the symbolic coefficient matrix """
@@ -27,7 +29,7 @@ end
 function fit(model::MLJConstrainedSTLSQ, df)
     X,t = df_to_Matrix_and_vector(df)
     ddprob = ContinuousDataDrivenProblem(X', t, model.interpolation)
-    opt = DataDrivenConstrained.ConstrainedSTLSQ(model.λ, model.constraints, model.Ξ)
+    opt = DataDrivenConstrained.ConstrainedSTLSQ(model.λ, model.ρ, model.constraints, model.Ξ)
     solbasis,cache = solve(ddprob, model.basis, opt, options = DataDrivenCommonOptions())
     return solbasis,cache
 end

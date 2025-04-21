@@ -13,6 +13,7 @@ using DataFrames
 using DataInterpolations
 include("plotting.jl") # for plotting functions
 export plot_interpolation, plot_data
+using Statistics
 
 # Create enzyme dinamyics model
 
@@ -44,10 +45,11 @@ n,m = length(basis), length(u)
 constraints = [Ξ[i,2] + Ξ[i,3] ~ 0 for i in 1:n] # sum of all species should be conserved
 
 
+
 #### EXPERIMENTAL
 
 λ = 1e-2
-rho = 100000
+rho = 50
 @show u
 
 X = hcat(data.u...)
@@ -59,28 +61,40 @@ rename!(df, column_names)
 
 interp = InterpolationMethod(CubicSpline)
 
+
 ### 
-model = MLJConstrainedSTLSQ(basis, constraints, λ, hcat(Ξ), interp)
+noise = 0.1
+#random noise added to df
+df[:,2:end] = df[:,2:end] .+ randn(size(df[:,2:end])) .* noise
+
+model = MLJConstrainedSTLSQ(basis, [], rho, λ, hcat(Ξ),interp)
+model_constrained = MLJConstrainedSTLSQ(basis, constraints, rho, λ, hcat(Ξ), interp)
 fitted_basis,cache = fit(model, df)
+fitted_basis_constrained, cache_constrained = fit(model_constrained, df)
 df_sol = DataDrivenConstrained.predict(fitted_basis, df)
+df_sol_constrained = DataDrivenConstrained.predict(fitted_basis_constrained, df)
 println(get_parameter_map(fitted_basis))
 println(fitted_basis)
 est = cache.Ξ_est
-est[:,1] + est[:,3] 
-est[:,2] + est[:,3] # check if the constraints are satisfied
+println("conservation 1", est[:,1] + est[:,3]) 
+println("conservation 2", est[:,2] + est[:,3])
 #substitute the values of the parameters in the equations
 
 
-model = DataDrivenConstrained.ConstrainedSTLSQ(λ, constraints, hcat(Ξ))
-ddprob = ContinuousDataDrivenProblem(X, data.t, interp)
-cache = DataDrivenConstrained.ConstrainedSTLSQcache(model, ddprob, basis)
-@unpack opt, zero_entries, C, d, Θ, DX = cache
-@unpack λ, constraints, Ξ = opt
+p1 = plot_data(df, df_sol ,states(basis); ddsolconstrained = df_sol_constrained, xlabel = "t", ylabel = "Concentration")
+#save figure
+savefig(p1, "enzyme_kinetics_noisy.png")
 
-# Least squares step
-A = vcat(hcat(DataDrivenConstrained.blockdiags(Θ'Θ, size(DX,2)),C'), hcat(C, zeros(length(d),length(d))))
-b = vcat(vec(Θ'*DX),d)
-ξ_est = (A\b)[1:end-length(d)]
+# model = DataDrivenConstrained.ConstrainedSTLSQ(λ, constraints, hcat(Ξ))
+# ddprob = ContinuousDataDrivenProblem(X, data.t, interp)
+# cache = DataDrivenConstrained.ConstrainedSTLSQcache(model, ddprob, basis)
+# @unpack opt, zero_entries, C, d, Θ, DX = cache
+# @unpack λ, constraints, Ξ = opt
+
+# # Least squares step
+# A = vcat(hcat(DataDrivenConstrained.blockdiags(Θ'Θ, size(DX,2)),C'), hcat(C, zeros(length(d),length(d))))
+# b = vcat(vec(Θ'*DX),d)
+# ξ_est = (A\b)[1:end-length(d)]
 
 
 
@@ -119,7 +133,7 @@ plot_interpolation(data, interval; variable_names = hcat(["E"; "S"; "ES"]...))
 #exclude first row from dataframe
 #rearrance df to have t in the first column
 df_sol = df_sol[:,[4,1,2,3]]
-plot_data(df, df_sol ,states(basis))
 
 import DataDrivenConstrained.fit
+
 

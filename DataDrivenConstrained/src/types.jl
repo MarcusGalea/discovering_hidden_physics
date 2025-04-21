@@ -5,6 +5,8 @@ ConstrainedSTLSQ is a type that represents the Constrained Subsequent Thresholde
 mutable struct ConstrainedSTLSQ{T}<:DataDrivenDiffEq.AbstractDataDrivenAlgorithm
     """ λ is the threshold of the iteration """
     λ::T
+    """ ρ is the regularization parameter """
+    ρ::T
     """ constraints is the list of constraints """
     constraints::Vector{Equation}
     """ Ξ is the symbolic coefficient matrix """

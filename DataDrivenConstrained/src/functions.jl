@@ -49,10 +49,11 @@ step! function takes in the cache and updates the cache with the next iteration 
 """
 function step!(cache::ConstrainedSTLSQcache)
     @unpack opt, zero_entries, C, d, Θ, DX = cache
-    @unpack λ, constraints, Ξ = opt
+    @unpack λ, constraints, Ξ, ρ = opt
 
     # Least squares step
-    A = vcat(hcat(blockdiags(Θ'Θ, size(DX,2)),C'), hcat(C, zeros(length(d),length(d))))
+    regularizer = diagm(ones(size(Θ,2))*ρ)
+    A = vcat(hcat(blockdiags(Θ'Θ + regularizer, size(DX,2)),C'), hcat(C, zeros(length(d),length(d))))
     b = vcat(vec(Θ'*DX),d)
     ξ_est = (A\b)[1:end-length(d)]
 

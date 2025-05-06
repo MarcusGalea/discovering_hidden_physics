@@ -1,0 +1,114 @@
+This is XeTeX, Version 3.141592653-2.6-0.999997 (MiKTeX 25.3) (preloaded format=xelatex 2025.4.21)  6 MAY 2025 10:37
+entering extended mode
+ restricted \write18 enabled.
+ file:line:error style messages enabled.
+ %&-line parsing enabled.
+**"c:/Users/MGAJ/OneDrive - Danmarks Tekniske Universitet/DTU/Kandidat/5_Semest
+er/Speciale/discovering_hidden_physics/UDEs/Reactive_SINDy.tex"
+
+(c:/Users/MGAJ/OneDrive - Danmarks Tekniske Universitet/DTU/Kandidat/5_Semester
+/Speciale/discovering_hidden_physics/UDEs/Reactive_SINDy.tex
+LaTeX2e <2024-11-01> patch level 2
+L3 programming layer <2025-03-26>
+
+(C:\Users\MGAJ\AppData\Local\Programs\MiKTeX\tex/latex/l3backend\l3backend-xete
+x.def
+File: l3backend-xetex.def 2025-03-14 L3 backend support: XeTeX
+\g__graphics_track_int=\count193
+\g__pdfannot_backend_int=\count194
+\g__pdfannot_backend_link_int=\count195
+) (Reactive_SINDy.aux)
+\openout1 = `Reactive_SINDy.aux'.
+
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 3.
+LaTeX Font Info:    ... okay on input line 3.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 3.
+LaTeX Font Info:    ... okay on input line 3.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 3.
+LaTeX Font Info:    ... okay on input line 3.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 3.
+LaTeX Font Info:    ... okay on input line 3.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 3.
+LaTeX Font Info:    ... okay on input line 3.
+LaTeX Font Info:    Checking defaults for TU/lmr/m/n on input line 3.
+LaTeX Font Info:    ... okay on input line 3.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 3.
+LaTeX Font Info:    ... okay on input line 3.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 3.
+LaTeX Font Info:    ... okay on input line 3.
+
+
+c:/Users/MGAJ/OneDrive - Danmarks Tekniske Universitet/DTU/Kandidat/5_Semester/
+Speciale/discovering_hidden_physics/UDEs/Reactive_SINDy.tex:3: LaTeX Error: The
+ font size command \normalsize is not defined:
+               there is probably something wrong with the class file.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.3 \begin{document}
+                    
+Your command was ignored.
+Type  I <command> <return>  to replace it with another command,
+or  <return>  to continue without it.
+
+c:/Users/MGAJ/OneDrive - Danmarks Tekniske Universitet/DTU/Kandidat/5_Semester/
+Speciale/discovering_hidden_physics/UDEs/Reactive_SINDy.tex:4: Undefined contro
+l sequence.
+l.4 \section
+            {Reactive SINDy}
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+
+
+
+c:/Users/MGAJ/OneDrive - Danmarks Tekniske Universitet/DTU/Kandidat/5_Semester/
+Speciale/discovering_hidden_physics/UDEs/Reactive_SINDy.tex:10: LaTeX Error: Th
+e font size command \normalsize is not defined:
+               there is probably something wrong with the class file.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.10 \end{document}
+                   
+Your command was ignored.
+Type  I <command> <return>  to replace it with another command,
+or  <return>  to continue without it.
+
+[1
+c:/Users/MGAJ/OneDrive - Danmarks Tekniske Universitet/DTU/Kandidat/5_Semester/
+Speciale/discovering_hidden_physics/UDEs/Reactive_SINDy.tex:10: Undefined contr
+ol sequence.
+<write> \newlabel{sec:Reactive_SINDy}{{}{\thepage 
+                                                  }{}{}{}}
+l.10 \end{document}
+                   
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+] (Reactive_SINDy.aux)
+ ***********
+LaTeX2e <2024-11-01> patch level 2
+L3 programming layer <2025-03-26>
+ ***********
+ ) 
+Here is how much of TeX's memory you used:
+ 215 strings out of 405075
+ 6254 string characters out of 5500189
+ 415773 words of memory out of 5000000
+ 26911 multiletter control sequences out of 15000+600000
+ 626833 words of font info for 41 fonts, out of 8000000 for 9000
+ 1348 hyphenation exceptions out of 8191
+ 29i,5n,34p,277b,78s stack positions out of 10000i,1000n,20000p,200000b,200000s
+
+Output written on Reactive_SINDy.pdf (1 page).

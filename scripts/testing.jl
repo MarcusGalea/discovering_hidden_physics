@@ -28,8 +28,8 @@ tspan = (0.0, 200.0)
 dt = 0.1
 
 sys = complete(sys)
-odefun = ODEFunction(sys, unknowns(sys), parameters(sys))
-prob = ODEProblem(odefun, [40.0, 9.0], tspan, [0.1, 0.02, 0.01, 0.3])
+odefun = DifferentialEquations.ODEFunction(sys, unknowns(sys), parameters(sys))
+prob = DifferentialEquations.ODEProblem(odefun, [40.0, 9.0], tspan, [0.1, 0.02, 0.01, 0.3])
 sol = solve(prob, Tsit5(), saveat=dt)
 data = hcat(sol.u...)'
 plot(sol, vars=(x, y), xlabel="prey", ylabel="predator",
@@ -61,7 +61,7 @@ params_guess_unknown = Dict([β => 0.02,# + deviance * randn()
                         ])
 
 
-@named sys_known = ODESystem(known_eqs, t, [x, y, z], [α, γ], defaults = params_guess_known, observed = [z ~ x + y])
+@named sys_known = ODESystem(known_eqs, t, [x, y], [α, γ], defaults = params_guess_known, observed = [z ~ x + y])
 @named sys_unknown = ODESystem(unknown_eqs, t, [x, y], [β, δ], defaults = params_guess_unknown)
 sys_known = complete(sys_known)
 sys_unknown = complete(sys_unknown)
@@ -71,12 +71,11 @@ hmodel = HybridModel(sys_known, sys_unknown)
 
 initp = init_params(hmodel)
 odefun = ODEFunction(hmodel)
-prob = ODEProblem(odefun, [40.0, 9.0], tspan, initp)
+u0map = ComponentArray(x = 40.0, y = 9.0)
+prob = DifferentialEquations.ODEProblem(odefun, u0map, tspan, initp)
 sol = solve(prob, Tsit5(), saveat=dt)
 data = hcat(sol.u...)'
 plot(sol.t, data, label=["Prey" "Predator"], xlabel="Time", ylabel="Population", title="Lotka-Volterra Model with Hidden ODE")
-
-
 
 
 
@@ -88,16 +87,15 @@ sample_size = 200
 
 
 sample_idcs = rand(1:n_data, sample_size)
-prey_df = DataFrame(simulation_id = "cond1", obs_id = "prey_o", time = time[sample_idcs], measurement= data[sample_idcs, 1],)
-predator_df = DataFrame(simulation_id = "cond1", obs_id = "predator_o", time = time[sample_idcs], measurement= data[sample_idcs, 2],)
+prey_df = DataFrame(simulation_id = "cond1", obs_id = "prey_o", time = sol.t[sample_idcs], measurement= data[sample_idcs, 1],)
+predator_df = DataFrame(simulation_id = "cond1", obs_id = "predator_o", time = sol.t[sample_idcs], measurement= data[sample_idcs, 2],)
 measurements = vcat(prey_df, predator_df)
 
 #### PETAB Model
-using PEtab
 #Setup observables
 @parameters σ
-obs_x = PEtabObservable(x, σ)
-obs_y = PEtabObservable(y, σ)
+obs_x = PEtabObservable(:x, σ)
+obs_y = PEtabObservable(:y, σ)
 obs = Dict("prey_o" => obs_x, "predator_o" => obs_y)
 
 
@@ -120,70 +118,18 @@ pest = [
 ]
 model = PEtabModel(sys,obs, measurements, pest; simulation_conditions  = conds)
 petab_prob = PEtabODEProblem(model)
+ptrue = get_x(petab_prob)
+#plot true values
+scatter(measurements.time, petab_prob.simulated_values(ptrue), label=["Populations"], xlabel="Time", ylabel="Population", title="Lotka-Volterra Model with PETAB", legend=:topright, linewidth=2, markersize=4)
 
-
-## Lotka-Volterra equations
-@parameters α β γ δ
-@independent_variables  t
-@variables x(t) y(t) z(t)
-Dt = Differential(t)
-eqs = [
-    Dt(x) ~ α * x - β * x * y,
-    Dt(y) ~ δ * x * y - γ * y,
-]
-measured_quantities = [z ~ x + y]  # Example of a measured quantity
-@named sys = ODESystem(eqs, t, [x, y], [α, β, γ, δ]; observed = measured_quantities)
-
-params =  Dict([α => 0.1, 
-                β => 0.02, 
-                γ => 0.3,
-                δ => 0.01,])
-
-u0 = Dict([x => 40.0, y => 9.0])
-tspan = (0.0, 200.0)
-dt = 0.1
-
-sys = structural_simplify(sys)
-odefun = DifferentialEquations.ODEFunction(sys )
-prob = DifferentialEquations.ODEProblem(odefun, [40.0, 9.0], tspan, [0.1, 0.02, 0.01, 0.3])
-sol = solve(prob, Tsit5(), saveat=dt)
-data = hcat(sol.u...)'
-
-
-parameters(sys)
-p_α = PEtabParameter(Symbol(psym), lb = 1e-6, ub = 1e0, scale = :lin)
-
-
-@parameters σ
-obs_x = PEtabObservable(x, σ)
-obs_y = PEtabObservable(y, σ)
-obs = Dict("prey_o" => obs_x, "predator_o" => obs_y)
-
-
-#setup initial conditions
-cond1 = Dict(:x => 40.0, :y => 9.0)
-conds = Dict("cond1" => cond1)
-# Setup parameters
-
-#model parameters
-
-estimate = true # Set to true if you want to estimate the parameters
-p_α = PEtabParameter(α, lb = 1e-6, ub = 1e0, estimate = estimate, scale = :lin, value = 0.1)
-p_β = PEtabParameter(β, lb = 1e-6 , ub = 1e0, estimate = estimate, scale = :lin, value = 0.02)
-p_γ = PEtabParameter(γ, lb = 1e-6, ub = 1e0, estimate = estimate, scale = :lin, value = 0.3)
-p_δ = PEtabParameter(δ, lb = 1e-6, ub = 1e0, estimate = estimate, scale = :lin, value = 0.01)
-#noise parameter
-p_σ = PEtabParameter(σ, lb = 1e-6, ub = 1e0, estimate = true, scale = :lin, value = 0.2)
-pest = [
-    p_α, p_β,  p_δ,p_γ, p_σ
-]
 
 #### DATA
 #Convert data to DataFrame  
 using ComponentArrays
 using DataFrames
 using Optimization
-n_data = size(data, 1)
+# n_data = size(data, 1)
+n_data = 200
 sample_size = 200
 
 
@@ -205,11 +151,29 @@ u0vec = ComponentArray(x = 40.0, y = 9.0)
 odefun =  DifferentialEquations.ODEFunction(sys)
 odeprob = DifferentialEquations.ODEProblem(odefun, u0vec, tspan, pvec)
 
-model = PEtabModel(odeprob,obs, train_measurements, pest; simulation_conditions  = conds)
+conds = Dict("cond1" => Dict(:x => 40.0, :y => 9.0))
+model = PEtabModel(odeprob,obs, train_measurements, pest;speciemap = [], simulation_conditions = conds)
 petab_prob = PEtabODEProblem(model)
 x0 = get_x(petab_prob)
+get_u0(x0, petab_prob)
+
+
+@unpack probinfo, model_info = petab_prob
+@unpack xindices, model, simulation_info = petab_prob.model_info
+@unpack solver, ss_solver, cache, odeproblem, ml_models_pre_ode = probinfo
+
+
 using Plots
 p1 = scatter(train_measurements[!,:time], petab_prob.simulated_values(x0))
+
+sys_mutated = deepcopy(odeprob)
+sys_mutated, speciemap_use = PEtab._get_speciemap(sys_mutated, model.petab_tables[:conditions], model.petab_tables[:hybridization]
+, Dict{Symbol, MLModel}(), [:x => 40.0, :y => 9.0])
+parametermap_use = PEtab._get_parametermap(sys_mutated, nothing)
+xindices = PEtab.ParameterIndices(model.petab_tables, sys_mutated, parametermap_use, speciemap_use, Dict{Symbol, MLModel}())
+model_SBML = PEtab.SBMLImporter.ModelSBML(model.name)
+hstr, u0!str, u0str, σstr = PEtab.parse_observables(model.name, Dict{Symbol, String}(), sys_mutated, model.petab_tables, xindices, speciemap_use, model_SBML, Dict{Symbol, MLModel}(), false)
+
 
 
 #### HYBRID MODEL SETUP ####
@@ -238,28 +202,69 @@ params_guess_unknown = Dict([β => 0.02,# + deviance * randn()
 sys_known = complete(sys_known)
 sys_unknown = complete(sys_unknown)
 
+#show known solutio
+known_prob = DifferentialEquations.ODEProblem(sys_known, [40.0, 9.0], tspan, [0.1, 0.3])
+known_sol = solve(known_prob, Tsit5(), saveat=dt)
+plot(known_sol, xlabel="Time", ylabel="Population", title="Known Lotka-Volterra Model", label=["Prey" "Predator"], legend=:topright, linewidth=2, markersize=4, ylim = (0, 60))
 
-hmodel = HybridModel(sys_known, sys_unknown; rng = rng)
-initp = init_params(hmodel) .+ 0.02*randn(rng, length(5)) # Initialize parameters with some noise
-hodeprob = ODEProblem(hmodel, u0vec, tspan, initp)
-hsol = solve(hodeprob, Tsit5(), saveat = dt)
-plot(hsol, vars = [x, y], label = ["Prey" "Predator"], title = "Hybrid Model Solution", xlabel = "Time", ylabel = "Population", legend = :topright)
+# hmodel = HybridModel(sys_known, sys_unknown; rng = rng)
+# initp = init_params(hmodel)# .+ 0.02*randn(rng, length(5)) # Initialize parameters with some noise
+# hodeprob = ODEProblem(hmodel, u0vec, tspan, initp)
+# hsol = solve(hodeprob, Tsit5(), saveat=dt)
+# plot(hsol)
 
-pest = [
-    p_α, p_γ, # Parameters for the known system
-    p_β, p_δ, # Parameters for the unknown system
-    p_σ # Noise parameter
-]
-petabhmodel = PEtabModel(hodeprob,obs, train_measurements, pest; simulation_conditions  = conds)
+# pest = [
+#     p_α, p_γ, # Parameters for the known system
+#     p_β,p_δ,  # Parameters for the unknown system
+#     p_σ # Noise parameter
+# ]
+# p_values = [0.1, 0.3, 0.02, 0.01, 0.2] # Initial parameter values
+# petabhmodel = PEtabModel(hodeprob,obs, train_measurements, pest; simulation_conditions  = conds, speciemap = [:x => 40.0, :y => 9.0], parametermap = p_values, verbose = true)
+# osolver = ODESolver(Tsit5();)
+# petabhprob = PEtabODEProblem(petabhmodel, odesolver = osolver)#; gradient_method = :ForwardDiff, odesolver = osolver, odesolver_gradient = osolver)
+# p = get_x(petabhprob)#get_startguesses(petabhprob, 1)
+# get_u0(p,petabhprob)
+# @unpack probinfo, model_info = petabhprob
+# @unpack xindices, model, simulation_info = petabhprob.model_info
+# @unpack solver, ss_solver, cache, odeproblem, ml_models_pre_ode = probinfo
+# ps = xindices.xids[:sys]
 
-osolver = ODESolver(Tsit5(); abstol_adj = 1e-3, reltol_adj = 1e-6)
-petabhprob = PEtabODEProblem(petabhmodel; gradient_method = :ForwardDiff, odesolver = osolver, odesolver_gradient = osolver)
-x0 = get_x(petabhprob)#get_startguesses(petabhprob, 1)
+odeproblem.u0[:]
+
+
+
+
+
+
+# #show results
+# scatter(train_measurements.time, petabhprob.simulated_values(p), label = "Hybrid Model", color = :blue, xlabel = "Time", ylabel = "Population", title = "Lotka-Volterra Hybrid Model with PETAB", legend = :topright, linewidth = 2, markersize = 4)
+
+
+# sys_mutated = deepcopy(hodeprob)
+# sys_mutated, speciemap_use = PEtab._get_speciemap(sys_mutated, petabhmodel.petab_tables[:conditions], petabhmodel.petab_tables[:hybridization]
+# , Dict{Symbol, MLModel}(), [:x => 40.0, :y => 9.0])
+# parametermap_use = PEtab._get_parametermap(sys_mutated, nothing)
+# xindices = PEtab.ParameterIndices(petabhmodel.petab_tables, sys_mutated, parametermap_use, speciemap_use, Dict{Symbol, MLModel}())
+# model_SBML = PEtab.SBMLImporter.ModelSBML(petabhmodel.name)
+# hstr, u0!str, u0str, σstr = PEtab.parse_observables(petabhmodel.name, Dict{Symbol, String}(), sys_mutated, petabhmodel.petab_tables, xindices, speciemap_use, model_SBML, Dict{Symbol, MLModel}(), false)
+
+
+
+sys =  hodeprob
+simulation_conditions = conds
+# observables = obs
+measurements = train_measurements
+# parameters = pest
+# speciemap = 
+# parametermap::Union{Nothing, AbstractVector},
+# events::Union{PEtabEvent, AbstractVector, Nothing}, verbose::Bool,
+# ml_models::Union{MLModels, Nothing})::PEtabModel
+
+
+
 using Optim
 using Plots
-res = calibrate(petabhprob, x0, BFGS(), save_trace = true)
-res.xmin
-x0guess = ComponentArray(initp; σ = 0.2) # Initial guess for the parameters with noise
+# res = calibrate(petabhprob, x0, BFGS(), save_trace = true)
 p2 = scatter(train_measurements[!,:time], petabhprob.simulated_values(x0guess), label = "Hybrid Model", color = :red)
 
 ### TRY AGAIN WITH A NEURAL NETWORK SURROGATE MODEL ###
@@ -277,23 +282,49 @@ rbf(x) = exp.(-(x.^2))
 
 n_states = length(unknowns(sys))
 nn1 = Lux.Chain(
-    Lux.Dense(2,5,rbf; init_weight =  kaiming_normal),
-    Lux.Dense(5,5, rbf, init_weight = kaiming_normal),
-    Lux.Dense(5,5, rbf, init_weight = kaiming_normal),
-    Lux.Dense(5,2, rbf, init_weight = kaiming_normal),
+    Lux.Dense(2,5,rbf; init_weight =  glorot_uniform),
+    Lux.Dense(5,5, rbf, init_weight = glorot_uniform),
+    Lux.Dense(5,5, rbf, init_weight = glorot_uniform),
+    Lux.Dense(5,2, rbf, init_weight = glorot_uniform),
 )
 p_nn, st_nn = Lux.setup(rng, nn1) |> ComponentArray |> f64
 petab_nn = MLModel(nn1; static = false, dirdata = model_dir, inputs = Symbol.(unknowns(sys)), outputs = Symbol.(unknowns(sys)))
 
 
-hmodel = HybridModel(sys_known, nn1; rng = rng)
+hmodel = HybridModel(sys_known, petab_nn)
 initp = init_params(hmodel)
-hodeprob = ODEProblem(hmodel, u0vec, tspan, initp)
-petabhmodel = PEtabModel(odeprob,obs, train_measurements, pest; simulation_conditions  = conds)
-petabhprob = PEtabODEProblem(petabhmodel)
-x0 = get_x(petabhprob)
-p3 = scatter(train_measurements[!,:time], petabhprob.simulated_values(x0), label = "Hybrid Model with NN", color = :green)
+u0vec = ComponentArray(x = 40.0, y = 9.0)
 
+hodeprob = ODEProblem(hmodel, u0vec, tspan, initp)
+hsol = solve(hodeprob, Tsit5(), saveat=dt)
+plot(hsol, ylim = (0, 60), xlabel = "Time", ylabel = "Population", title = "Hybrid Model with NN Surrogate", label=["Prey" "Predator"], legend=:topright, linewidth=2, markersize=4)
+
+
+p_surrogate = PEtabMLParameter(:surrogate, true, petab_nn.ps)
+pest_ml = [
+    p_α, p_γ, # Parameters for the known system
+    p_σ, # Noise parameter
+    p_surrogate # Surrogate model parameter
+]
+
+using SciMLSensitivity, Sundials
+
+petabhmodel = PEtabModel(hodeprob,obs, train_measurements, pest_ml; simulation_conditions  = conds, ml_models = hmodel.ml_models)
+osolver = ODESolver(Tsit5();  abstol_adj = 1e-3, reltol_adj = 1e-6)
+petabhprob = PEtabODEProblem(petabhmodel; odesolver = osolver, gradient_method = :ForwardDiff, odesolver_gradient = osolver, sensealg = InterpolatingAdjoint(autojacvec = ReverseDiffVJP(true)))
+x0 = get_x(petabhprob)
+u0_hprob = get_ps(x0, petabhprob)
+using OptimizationOptimJL
+using Optim
+
+opt_prob = OptimizationProblem(petabhprob, box_constraints = false)
+opt_prob.u0 .= get_x(petabhprob) .+ 0.1 * randn(rng, length(get_x(petabhprob)))
+
+res = solve(opt_prob,Adam(), show_trace = true)
+
+p3 = scatter(train_measurements[!,:time], petabhprob.simulated_values(res.u), label = "Hybrid Model with NN", color = :green, ylim = (0, 60))
+#plot real data on topright
+scatter(p3, train_measurements[!,:time], train_measurements[!,:measurement], label = "Real Data", color = :black, markersize = 2, linewidth = 1)
 
 
 

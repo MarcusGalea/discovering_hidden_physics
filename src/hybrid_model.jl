@@ -44,7 +44,7 @@ mutable struct HybridModel
                 ode_fun::Function = ODEFunction(sys, surrogate; rng = rng),
                 ml_models::Dict{String, Any} = Dict{String, Any}(),
                 ) where 
-                {T <: ModelingToolkit.AbstractTimeDependentSystem} = 
+                T <: ModelingToolkit.AbstractTimeDependentSystem = 
         new(sys, surrogate, events, observables, rng, ode_fun, ml_models)
 
 
@@ -54,9 +54,9 @@ mutable struct HybridModel
                observables::Vector = has_observed(sys) || has_observed(surrogate) ?  union([observables(sys);observables(surrogate)]) : unknowns(sys), #choose observables from sys or surrogate if they have them. else use state variables
                rng::Random.AbstractRNG = Random.default_rng(1234),
                ode_fun::Function = ODEFunction(sys, surrogate; rng = rng),
-               ml_models::Dict{String, Any} = Dict("surrogate" => surrogate),
+               ml_models::Dict{String, Any} = Dict(:surrogate => surrogate),
                ) where 
-               {T <: Lux.Chain} =    
+               T <: Lux.Chain =    
         new(sys, surrogate, events, observables, rng, ode_fun, ml_models)
 
     """ Construct a HybridModel system with a PEtab MLModel surrogate model."""
@@ -65,7 +65,7 @@ mutable struct HybridModel
                observables::Vector = has_observed(sys) || has_observed(surrogate) ?  union([observables(sys);observables(surrogate)]) : unknowns(sys), #choose observables from sys or surrogate if they have them. else use state variables
                rng::Random.AbstractRNG = Random.default_rng(1234),
                ode_fun::Function = ODEFunction(sys, surrogate; rng = rng),
-               ml_models::Dict{String, Any} = Dict("surrogate" => surrogate),
+               ml_models::Dict = Dict(:surrogate => surrogate),
                ) where 
                {T <: PEtab.MLModel} =    
         new(sys, surrogate, events, observables, rng, ode_fun, ml_models)
@@ -85,6 +85,7 @@ function init_params(model::HybridModel)
     surrogate_ps = init_params(surrogate; rng)
     
     # Combine the parameters into a NamedTuple
+    # combined_ps = merge(ode_ps, surrogate_ps)
     combined_ps = merge(ode_ps, surrogate_ps)
     return ComponentVector{Any}(combined_ps)
 end
@@ -95,7 +96,7 @@ function ODEFunction(model::HybridModel)
 end
 
 #create the ODE function for the HybridModel system
-function ODEFunction(sys::ODESystem, surrogate::T; rng = Random.default_rng(1234)) where {T <: Union{ModelingToolkit.AbstractTimeDependentSystem, Lux.Chain}}
+function ODEFunction(sys::ODESystem, surrogate::T; rng = Random.default_rng(1234)) where {T <: Union{ModelingToolkit.AbstractTimeDependentSystem, Lux.Chain, PEtab.MLModel}}
     # Get the derivative function for the ODE system
     ode_fun! = DifferentialEquations.ODEFunction(sys)
     # Get the surrogate derivative function
@@ -107,15 +108,14 @@ function ODEFunction(sys::ODESystem, surrogate::T; rng = Random.default_rng(1234
         # Compute the ODE derivatives
         ode_fun!(du1, u, p, t) 
         # Compute the surrogate derivatives
-        surrogate_fun!(du2, u, p, t) 
+        surrogate_fun!(du2, u, p.surrogate, t) 
         # Combine the derivatives   
-        du.= du1 .+ du2 
+        du.= du1 .+ du2
         return du  
     end
     odefun! = remake(ode_fun!, f = update_du!) # Create a new ODEFunction with the combined derivatives
     return odefun!
 end
-
 function ODEProblem(model::HybridModel, u0::Union{Vector, ComponentArray}, tspan, p = init_params(model))
     @unpack ode_fun = model
     prob = DifferentialEquations.ODEProblem(ode_fun, u0, tspan, p)
@@ -154,7 +154,7 @@ end
 function init_params(sys::ODESystem; randfun = rand, rng = Random.default_rng(1234))
     if ModelingToolkit.has_defaults(sys)
         defaults = ModelingToolkit.get_defaults(sys)
-        params = parameters(sys)
+
         # Initialize parameters with defaults (NamedTuple))
         return (; (Symbol(string(p)) => defaults[p] for p in parameters(sys) if p in keys(defaults))...)
     else
@@ -168,6 +168,12 @@ function derivative_function!(sys::ODESystem; rng = Random.default_rng(1234))
     return DifferentialEquations.ODEFunction(sys)
 end
 
+@independent_variables t
+function merge_systems(sys::AbstractTimeDependentSystem, surrogate::AbstractTimeDependentSystem)
+    # Merge the ODE system and the surrogate model into a single system (Given they are both symbolic systems)
+    D = Differential(t)
+end
+
 ### NEURAL NETWORK METHODS ###
 function init_params(nn::Lux.Chain; rng = Random.default_rng(1234))
     # Get the parameters of the Lux model
@@ -178,7 +184,7 @@ function derivative_function!(nn::Lux.Chain; rng = Random.default_rng(1234))
     # Create a function that computes the derivatives of the Lux model
     st = Lux.initialstates(rng, nn)
     #NeuralODE. The output of the neural network is a vector of derivatives. Network only depends on state and network parameters.
-    du = (du, u, p, t) -> first(nn(u, p, st))
+    du = (du, u, p, t) -> first(nn(u, p, st)) #the NN only depends on the state 
     return deepcopy(du)
 end
 

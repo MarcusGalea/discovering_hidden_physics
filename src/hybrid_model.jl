@@ -86,7 +86,7 @@ function init_params(model::HybridModel)
     
     # Combine the parameters into a NamedTuple
     # combined_ps = merge(ode_ps, surrogate_ps)
-    combined_ps = merge(ode_ps, surrogate_ps)
+    combined_ps = merge(ode_ps, (;surrogate = surrogate_ps))
     return ComponentVector{Any}(combined_ps)
 end
 
@@ -177,7 +177,7 @@ end
 ### NEURAL NETWORK METHODS ###
 function init_params(nn::Lux.Chain; rng = Random.default_rng(1234))
     # Get the parameters of the Lux model
-    return (; surrogate = Lux.initialparameters(rng, nn))
+    return Lux.initialparameters(rng, nn)
 end
 
 function derivative_function!(nn::Lux.Chain; rng = Random.default_rng(1234))
@@ -201,7 +201,7 @@ end
 #### PETAB ML MODEL METHODS ####
 function init_params(model::PEtab.MLModel; rng = Random.default_rng(1234))
     # retrieve the parameters of the PEtab ML model
-    return (; surrogate = model.ps)
+    return model.ps
 end
 
 function derivative_function!(model::PEtab.MLModel; rng = Random.default_rng(1234))

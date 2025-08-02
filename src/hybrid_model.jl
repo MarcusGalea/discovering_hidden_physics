@@ -5,6 +5,8 @@ using ModelingToolkit
 using Random
 import ModelingToolkit:has_observed,observables
 import Optimization:solve
+using SciMLSensitivity
+using DataFrames
 using ComponentArrays
 
 
@@ -82,12 +84,12 @@ function init_params(model::HybridModel)
     # Initialize parameters for the ODE system
     ode_ps = init_params(sys)
     # Initialize parameters for the surrogate model
-    surrogate_ps = init_params(surrogate; rng)
-    
+    surrogate_ps = init_params(surrogate; rng = rng)
+
     # Combine the parameters into a NamedTuple
     # combined_ps = merge(ode_ps, surrogate_ps)
-    combined_ps = merge(ode_ps, (;surrogate = surrogate_ps))
-    return ComponentVector{Any}(combined_ps)
+    combined_ps = merge((;sys = ode_ps), (;surrogate = surrogate_ps))
+    return ComponentVector{Float64}(combined_ps)
 end
 
 function ODEFunction(model::HybridModel)
@@ -98,15 +100,15 @@ end
 #create the ODE function for the HybridModel system
 function ODEFunction(sys::ODESystem, surrogate::T; rng = Random.default_rng(1234)) where {T <: Union{ModelingToolkit.AbstractTimeDependentSystem, Lux.Chain, PEtab.MLModel}}
     # Get the derivative function for the ODE system
-    ode_fun! = DifferentialEquations.ODEFunction(sys)
+    ode_fun! = DifferentialEquations.ODEFunction(sys, unknowns(sys), parameters(sys))
     # Get the surrogate derivative function
     surrogate_fun! = derivative_function!(surrogate; rng = rng)
 
-    du1 = zeros(length(unknowns(sys))) # Initialize du1 for the ODE system
+    du1 = arr = Any[0.0 for _ in 1:length(unknowns(sys))]
     du2 = copy(du1) # Initialize du2 for the surrogate model
     function update_du!(du, u, p, t)
         # Compute the ODE derivatives
-        ode_fun!(du1, u, p, t) 
+        ode_fun!(du1, u, p.sys, t) 
         # Compute the surrogate derivatives
         surrogate_fun!(du2, u, p.surrogate, t) 
         # Combine the derivatives   
@@ -117,9 +119,20 @@ function ODEFunction(sys::ODESystem, surrogate::T; rng = Random.default_rng(1234
     return odefun!
 end
 function ODEProblem(model::HybridModel, u0::Union{Vector, ComponentArray}, tspan, p = init_params(model))
-    @unpack ode_fun = model
+    # @unpack ode_fun = model
+    ode_fun = ODEFunction(model)
     prob = DifferentialEquations.ODEProblem(ode_fun, u0, tspan, p)
 end
+
+function ODEProblem(model::HybridModel, u0::Dict, tspan, p = init_params(model))
+    # @unpack ode_fun, sys= model
+    ode_fun = ODEFunction(model)
+    sys = model.sys
+    # Convert the dictionary to a vector
+    u0_vec = [u0[var] for var in unknowns(sys)]
+    prob = DifferentialEquations.ODEProblem(ode_fun, u0_vec, tspan, p)
+end
+
 
 function EnsembleProblem(model::HybridModel, u0s::Vector{Vector{T}}, tspan, p = init_params(model)) where {T <: Any}
     prob = ODEProblem(model, u0s[1], tspan, p)
@@ -129,8 +142,37 @@ function EnsembleProblem(model::HybridModel, u0s::Vector{Vector{T}}, tspan, p = 
     return EnsembleProblem(prob, prob_func = prob_func)
 end
 
-function solve(model::HybridModel, u0s, time, p = init_params(model); alg = Tsit5, kwargs...)
-    tspan = (time[1], time[end])
+function EnsembleProblem(model::HybridModel, u0s::Dict{String, Dict}, tspan, p = init_params(model))
+    #Assuming u0s is a Dictionary where keys are simulation IDs and values are dictionaries of initial conditions
+    #get sorted keys
+    conds =  sort(collect(keys(u0s)))
+    prob = ODEProblem(model, u0s[conds[1]], tspan, p)
+    function prob_func(prob, i, repeat)
+        if u0s[conds[i]] isa Dict
+            u0 = [u0s[conds[i]][var] for var in unknowns(model.sys)]
+        else
+            u0 = u0s[conds[i]]
+        end
+        remake(prob, u0 = u0)
+    end
+    return EnsembleProblem(prob, prob_func = prob_func)
+end
+
+function EnsembleProblem(model::HybridModel, u0s::Any, tspan, p = init_params(model)) #
+    conds =  sort(collect(keys(u0s)))
+    prob = ODEProblem(model, u0s[conds[1]], tspan, p)
+    function prob_func(prob, i, repeat)
+        if u0s[conds[i]] isa Dict
+            u0 = [u0s[conds[i]][var] for var in unknowns(model.sys)]
+        else
+            u0 = u0s[conds[i]]
+        end
+        remake(prob, u0 = u0)
+    end
+    return DifferentialEquations.EnsembleProblem(prob, prob_func = prob_func)
+end
+
+function solve(model::HybridModel, u0s, time, p = init_params(model); alg = Tsit5, tspan = (time[1], time[end]), kwargs...)
     prob = EnsembleProblem(model, u0s, tspan, p)
     # if prob isa EnsembleProblem
     return solve(prob, alg(), EnsembleDistributed(), trajectories = length(u0s), saveat = time, kwargs...)
@@ -152,9 +194,8 @@ end
 
 ### ODE SYSTEM METHODS ###
 function init_params(sys::ODESystem; randfun = rand, rng = Random.default_rng(1234))
-    if ModelingToolkit.has_defaults(sys)
+    if ModelingToolkit.has_defaults(sys) & any([p in keys(ModelingToolkit.get_defaults(sys)) for p in parameters(sys)])
         defaults = ModelingToolkit.get_defaults(sys)
-
         # Initialize parameters with defaults (NamedTuple))
         return (; (Symbol(string(p)) => defaults[p] for p in parameters(sys) if p in keys(defaults))...)
     else
@@ -165,7 +206,7 @@ end
 
 
 function derivative_function!(sys::ODESystem; rng = Random.default_rng(1234))
-    return DifferentialEquations.ODEFunction(sys)
+    return DifferentialEquations.ODEFunction(sys, unknowns(sys), parameters(sys))
 end
 
 @independent_variables t
@@ -250,3 +291,105 @@ function observables(model::NullModel)
     return []
 end
 
+"""
+Parameter Estimation Problem for HybridModel.
+    This problem involves estimating the parameters of a HybridModel that combines
+    both ODE and machine learning components.
+"""
+struct HybridPEProblem
+    """ A HybridModel that uses a Surrogate model as the surrogate."""
+    model::HybridModel
+    """ The initial conditions for the ODE system."""
+    u0map
+    """ measurements for the hybrid model."""
+    measurements::DataFrame
+    """ Conditions. This is a dictionary that maps the conditions to overwrite values in u0map."""
+    conditions::Dict
+    """observations for the hybrid model."""
+    observations::Dict
+    """ The time span for the simulation."""
+    tspan::Tuple
+    """ Create an objective function for the HybridPEProblem."""
+    obj_func::Function
+
+    #create constructor for HybridModelPE
+    HybridPEProblem(model::HybridModel, observables::Dict, measurements::DataFrame, u0map; 
+                  conditions::Dict = overwrite_conditions!(u0map, Dict()), 
+                  tspan::Tuple = (0.0, maximum(measurements.time)),
+                  kwargs...
+                    ) = new(model, u0map, measurements, conditions, observables, tspan,
+                    define_loss_function(model, observables, measurements, u0map; 
+                                         conditions = conditions, tspan = tspan, kwargs...))
+end
+
+function define_loss_function(model::HybridModel, obs::Dict, measurements::DataFrame, u0map; 
+                              conditions::Dict = Dict(), 
+                              tspan::Tuple = (0.0, maximum(measurements.time)),
+                              alg = Tsit5(),
+                              ens_alg = EnsembleDistributed(),
+                              include_plot = false,
+                              lasso_penalty = 0.0,
+                              ridge_penalty = 0.0,
+                              )
+    # Define
+    u0_conditions = overwrite_conditions!(u0map, conditions)
+    obs_funs = Dict([obs_fun.lhs =>eval(build_function(obs_fun.rhs, unknowns(model.sys); ps = parameters(model.sys), expression=Val{false})) for obs_fun in observed(model.sys)])
+    
+    idx_sim = Dict([cond => i for (i, cond) in enumerate(sort(collect(keys(u0_conditions))))]) #create a map from condition name to ensemble index
+    idx_var = Dict([var => i for (i, var) in enumerate(unknowns(model.sys))]) #create a map from variable name to index
+    idx_time = invperm(sortperm(measurements.time)) # Get the permutation to sort timevals
+    # ensemble_prob = EnsembleProblem(model, u0_conditions, tspan)
+
+    function loss_function(p)
+        # ensemble_prob = remake(ensemble_prob, p = p) #SUPER SMART!! This allows us to change the parameters of the ensemble problem without creating a new one
+        ensemble_prob = EnsembleProblem(model, u0_conditions, tspan, p)
+        sim = solve(ensemble_prob, alg, ens_alg, trajectories = length(u0_conditions), saveat = measurements.time, sensealg = ForwardDiffSensitivity()) #Array
+
+        obs_val_dict = [observable_dict(sim[i], p, model, obs_funs) for i in 1:length(u0_conditions)]
+        loss = 0.0 
+        # println(sim)
+        for i in 1:size(measurements, 1)
+            entry = measurements[i, :]
+            meas_value = entry.measurement
+            sim_value = obs_val_dict[idx_sim[entry.simulation_id]][obs[entry.obs_id]][idx_time[i]]
+            # sim[idx_var[obs[entry.obs_id]],idx_time[i],idx_sim[entry.simulation_id]]
+            loss += (sim_value - meas_value)^2
+        end
+        #
+        # Add Lasso and Ridge penalties if specified (Only if the surrogate model is not a NullModel)
+        if lasso_penalty > 0.0
+            loss += lasso_penalty * sum(abs, p.surrogate) 
+        end
+        if ridge_penalty > 0.0
+            loss += ridge_penalty * sum(p.surrogate .^ 2)
+        end
+
+        return loss
+    end
+    return deepcopy(loss_function)
+end
+
+
+function overwrite_conditions!(u0map, conditions)
+    # Overwrite the initial conditions with the conditions dictionary
+    for (cond, condu0map) in conditions
+        for u0 in keys(u0map)
+            if !haskey(condu0map, u0)
+                condu0map[u0] = u0map[u0] # if the condition does not have the variable, use the original value
+            end
+        end
+    end
+    return conditions
+end
+
+function observable_dict(odesol, p, model::HybridModel, obs_funs::Dict)
+    simvals = Array(odesol)
+    obs_dict = Dict{ModelingToolkit.BasicSymbolic, Vector}()
+    for (i,sym) in enumerate(unknowns(model.sys))
+        obs_dict[sym] = simvals[i, :]
+    end
+    for (obs_sym, obs_fun) in obs_funs
+        obs_dict[obs_sym] = [obs_fun(vals, p) for vals in eachcol(simvals)]
+    end
+    return obs_dict
+end

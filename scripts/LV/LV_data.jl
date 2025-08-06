@@ -62,3 +62,18 @@ test_idcs = findall(measurements.time .> test_time[end])
 #save train and test data½
 train_measurements = measurements[train_idcs, :]
 test_measurements = measurements[test_idcs, :]
+
+#### Multiple initial conditions for ensemble learning
+
+# initial_conditions  = [
+#     [40.0, 9.0, 0.0],
+#     [20.0, 9.0, 0.0],
+#     [10.0, 9.0, 0.0],
+# ]
+# function prob_func(prob, i, repeat)
+#     remake(prob, u0 = initial_conditions[i])
+# end
+
+# ensemble_prob = EnsembleProblem(prob, prob_func = prob_func)
+# sim = solve(ensemble_prob, Tsit5(), EnsembleDistributed(), trajectories = length(initial_conditions), saveat = dt)
+# scatter(sim[1].t, hcat(sim[1].u...), label=["Prey" "Predator"], xlabel="Time", ylabel="Population", title="Lotka-Volterra Model with Ensemble Data")

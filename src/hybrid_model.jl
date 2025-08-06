@@ -11,7 +11,7 @@ using DataFrames
 using ComponentArrays
 using LatinHypercubeSampling
 using MLUtils
-
+using Surrogates
 
 mutable struct NullModel <: ModelingToolkit.AbstractTimeDependentSystem
     """ A null model that does nothing. Used as a placeholder for surrogate models."""
@@ -81,17 +81,21 @@ NamedTuple(dict::Dict) = (; (Symbol(string(k)) => v for (k, v) in dict)...)
 #### HIDDEN ODE METHODS ####
 
 function init_params(model::HybridModel; 
-    lb = ComponentArray(ode = -ones(length(parameters(model.sys))), 
+    lb = ComponentArray(sys = -ones(length(parameters(model.sys))), 
                         surrogate = -ones(length(parameters(model.surrogate)))),
-    ub = ComponentArray(ode = ones(length(parameters(model.sys))), 
+    ub = ComponentArray(sys = ones(length(parameters(model.sys))), 
                         surrogate = ones(length(parameters(model.surrogate)))),
-    n = 1)
+    n = 1, # number of samples to generate
+    method = :latin_hypercube_sampling, # method to use for sampling parameters
+    )
     @unpack sys, surrogate, rng = model
     
     # Initialize parameters for the ODE system
-    ode_ps = init_params(sys; rng = rng, n = n, lb = lb.ode, ub = ub.ode)
+    ode_ps = init_params(sys; rng = rng, n = n, lb = lb.sys, ub = ub.sys,
+                        method = method) # 
     # Initialize parameters for the surrogate model
-    surrogate_ps = init_params(surrogate; rng = rng, n = n, lb = lb.surrogate, ub = ub.surrogate)
+    surrogate_ps = init_params(surrogate; rng = rng, n = n, lb = lb.surrogate, ub = ub.surrogate, 
+                               method = method)
 
     # Combine the parameters into a NamedTuple
     # combined_ps = merge(ode_ps, surrogate_ps)
@@ -103,7 +107,6 @@ function init_params(model::HybridModel;
     combined_ps = merge((;sys = ode_ps), (;surrogate = surrogate_ps))
     return ComponentVector{Float64}(combined_ps)
 end
-
 function DifferentialEquations.ODEFunction(model::HybridModel)
         @unpack sys, surrogate, rng = model
         return DifferentialEquations.ODEFunction(sys, surrogate; rng = rng)
@@ -206,13 +209,18 @@ end
 
 ### ODE SYSTEM METHODS ###
 function init_params(sys::ODESystem; randfun = rand, rng = Random.default_rng(1234), n = 1, lb = -ones(length(parameters(sys))), ub = ones(length(parameters(sys))), 
-                        generations = 1000)
+                        generations = 1000, method = :latin_hypercube_sampling, radius = 1.0)
     if n > 1
-        # If n > 1, return a vector of sampled parameters
-        n_parameters = length(parameters(sys))
-        samples, _ = LHCoptim(n,n_parameters, generations, rng = rng)
-        scaled_samples = scaleLHC(samples, [(lb[i], ub[i]) for i in 1:n_parameters])
-        return [NamedTuple(Dict(Symbol(string(p)) => scaled_samples[i, j] for (j, p) in enumerate(parameters(sys)))) for i in 1:n]
+        # If n > 1, return a vector of sampled Parameters
+        if method == :latin_hypercube_sampling
+            samples = latin_hypercube_sampling(sys, n, lb, ub; rng = rng, generations = generations)
+            return samples
+        elseif method == :spherical_sampling
+            # return spherical_sampling(sys, n, radius; rng = rng)
+            #TODO: Implement spherical sampling
+        else
+            @error "Unknown sampling method: $method"
+        end 
     end
     if ModelingToolkit.has_defaults(sys) & any([p in keys(ModelingToolkit.get_defaults(sys)) for p in parameters(sys)])
         defaults = ModelingToolkit.get_defaults(sys)
@@ -224,6 +232,15 @@ function init_params(sys::ODESystem; randfun = rand, rng = Random.default_rng(12
     end
 end
 
+    
+
+function latin_hypercube_sampling(sys::ODESystem, n, lb, ub; rng = Random.default_rng(1234),
+                                generations = 1000)
+        n_parameters = length(parameters(sys))
+        samples, _ = LHCoptim(n,n_parameters, generations, rng = rng)
+        scaled_samples = scaleLHC(samples, [(lb[i], ub[i]) for i in 1:n_parameters])
+        return [NamedTuple(Dict(Symbol(string(p)) => scaled_samples[i, j] for (j, p) in enumerate(parameters(sys)))) for i in 1:n]
+end
 
 function derivative_function!(sys::ODESystem; rng = Random.default_rng(1234))
     return DifferentialEquations.ODEFunction(sys, unknowns(sys), parameters(sys))
@@ -238,7 +255,7 @@ end
 
 ### NEURAL NETWORK METHODS ###
 function init_params(nn::Lux.Chain; rng = Random.default_rng(1234), 
-                     n = 1,lb = nothing, ub = nothing)
+                     n = 1,lb = nothing, ub = nothing, method = nothing)
     # Get the parameters of the Lux model
     if n > 1
         return [Lux.initialparameters(rng, nn) for _ in 1:n] # Return a vector of initial parameters
@@ -369,13 +386,14 @@ function simulate_solution(prob::HybridPEProblem, p;
                             tspan = prob.tspan,
                             alg = Tsit5(),
                             ens_alg = EnsembleDistributed(),
+                            saveat =  prob.measurements.time
     )
     # Overwrite the initial conditions with the conditions dictionary
     u0_conditions = overwrite_conditions!(u0map, conditions)
     # Create an EnsembleProblem with the initial conditions and parameters
     ens_prob = DifferentialEquations.EnsembleProblem(prob.model, u0_conditions, tspan, p)
     # Solve the EnsembleProblem
-    sim = solve(ens_prob, alg, ens_alg, trajectories = length(u0_conditions), saveat = prob.measurements.time)
+    sim = solve(ens_prob, alg, ens_alg, trajectories = length(u0_conditions), saveat = saveat)
 end
 
 function define_loss_function(model::HybridModel, obs::Dict, measurements::DataFrame, u0map; 
@@ -387,7 +405,7 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
                               alpha = 0.0,
                               l1_ratio= 0.0,
                               assume_stable_data = true,
-                              unsolved_penalty = 1e+8, # penalty for unsolved simulations,
+                              unsolved_penalty = 1e+16, # penalty for unsolved simulations,
                               sensealg = ForwardDiffSensitivity()
                               )
     # Define
@@ -396,36 +414,38 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
     
     idx_sim = Dict([cond => i for (i, cond) in enumerate(sort(collect(keys(u0_conditions))))]) #create a map from condition name to ensemble index
     idx_var = Dict([var => i for (i, var) in enumerate(unknowns(model.sys))]) #create a map from variable name to index
-    idx_time = Dict(entry.time => i for (i, entry) in enumerate(eachrow(measurements))) #create a map from time to index in the measurements
-    # ensemble_prob = EnsembleProblem(model, u0_conditions, tspan)
+    ensemble_prob = EnsembleProblem(model, u0_conditions, tspan)
     max_t_gt = maximum(measurements.time) # Get the maximum time from the measurements
 
-    function loss_function(p, measurements_batch)
-        # ensemble_prob = remake(ensemble_prob, p = p) #SUPER SMART!! This allows us to change the parameters of the ensemble problem without creating a new one
-        ensemble_prob = EnsembleProblem(model, u0_conditions, tspan, p)
-        sim = solve(ensemble_prob, alg, ens_alg, trajectories = length(u0_conditions), saveat = measurements.time, sensealg = sensealg) #Array
-        max_t = maximum(vec([traj.t for traj in sim]...))
-        idx_time = Dict(time => i for (i, time) in enumerate(sort(measurements.time))) #create a map from time to index in the measurements
+    measurements_batch = measurements # Use the full measurements DataFrame
+
+    function loss_function(p)#, measurements_batch)
+        # measurements_batch = measurements_batch isa DataLoader ? measurements_batch.data : measurements_batch
+        ensemble_prob = remake(ensemble_prob, p = p) #SUPER SMART!! This allows us to change the parameters of the ensemble problem without creating a new one
+        sim = solve(ensemble_prob, alg, ens_alg, trajectories = length(u0_conditions), saveat = unique(measurements_batch.time), sensealg = sensealg) #Array
+        if prod(Int.([trajectory.retcode for trajectory in sim])) != 1
+            @warn "Some simulations did not converge. Returning a high loss value."
+            return unsolved_penalty # Return a high loss value if any simulation did not converge
+        end
+        idx_time = Dict(time => i for (i, time) in enumerate(sim[1].t))
         obs_val_dict = [observable_dict(sim[i], p, model, obs_funs) for i in 1:length(u0_conditions)]
         loss = 0.0 
         n = 0
-        # println(sim)
+
+        # some algorithms don't support DataLoaders, so we access dataframe directly
+
         for i in 1:size(measurements_batch, 1)
             entry = measurements_batch[i, :]
-            if assume_stable_data && idx_time[entry.time] > length(sim[idx_sim[entry.simulation_id]].t)
-                continue # Skip this entry if the time is greater than the maximum time in the simulation
-            end
+            # if assume_stable_data && idx_time[entry.time] > length(sim[idx_sim[entry.simulation_id]].t)
+            #     continue # Skip this entry if the time is greater than the maximum time in the simulation
+            # end
             #make sure the simulation has the same time as the measurement
-            @assert sim[idx_sim[entry.simulation_id]].t[idx_time[entry.time]] ≈ entry.time "The time in the measurement $(entry.time) does not match the simulation time $(sim[idx_sim[entry.simulation_id]].t[idx_time[entry.time]])"
+            @assert isapprox(sim[idx_sim[entry.simulation_id]].t[idx_time[entry.time]], entry.time, atol = 0.1) "The time in the measurement $(entry.time) does not match the simulation time $(sim[idx_sim[entry.simulation_id]].t[idx_time[entry.time]])"
             meas_value = entry.measurement
             sim_value = obs_val_dict[idx_sim[entry.simulation_id]][obs[entry.obs_id]][idx_time[entry.time]]
             # sim[idx_var[obs[entry.obs_id]],idx_time[i],idx_sim[entry.simulation_id]]
             loss += (sim_value - meas_value)^2
             n+= 1
-        end
-        if max_t < max_t_gt
-            # If the simulation did not reach the maximum time, add a penalty
-            loss += unsolved_penalty * (max_t_gt - max_t)/max_t_gt
         end
         
         # Add Lasso and Ridge penalties if specified (Only if the surrogate model is not a NullModel)
@@ -439,6 +459,34 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
     return deepcopy(loss_function)
 end
 
+
+
+function create_callback(peprob::HybridPEProblem;  plot_every = 30, report_every = 10, loss_upper_bound = 1e7,
+                       xlabel = "Time", ylabel = "Population", title = "Lotka-Volterra", kwargs...)
+    label = hcat(string.(unknowns(peprob.model.sys))...)
+    function callback(state, l;) #callback function to observe training
+        sim = simulate_solution(peprob, state.u)
+        if l > loss_upper_bound
+            println("Loss exceeded upper bound at iteration $(state.iter). Stopping optimization.")
+            return true # Stop the optimization if loss exceeds upper bound
+        end
+        if prod(Int.([trajectory.retcode for trajectory in sim])) != 1
+            println("Simulation failed at iteration $(state.iter). Stopping optimization.")
+            return true # Stop the optimization if simulation fails
+        end
+        if state.iter % report_every == 0
+            println("Iteration: $(state.iter), Loss: $(l), Parameters: $(state.u)")
+
+        end
+        if plot_every > 0 && state.iter % plot_every == 0
+            p1 = plot(sim, label = label.*"_fit", linewidth=2, markersize=4, legend =:topright)
+            scatter!(p1, timedata[sample_idcs], data[sample_idcs, :], label=label.*"_data", legend =:topright, xlabel = xlabel, ylabel = ylabel, title = title, kwargs...)
+            display(p1)
+        end
+        return false
+    end
+    return callback
+end
 
 function overwrite_conditions!(u0map, conditions)
     # Overwrite the initial conditions with the conditions dictionary
@@ -471,7 +519,8 @@ function Optimization.OptimizationFunction(problem::HybridPEProblem; adalg = Opt
                         conditions = problem.conditions, tspan = problem.tspan, kwargs...)
     # Create the optimization function
     #create function that ignores second input
-    f = (p, data) -> loss_func(p, data)
+    # f = (p, data) -> loss_func(p, data)
+    f = (p, _) -> loss_func(p) # Ignore the data input, as we are using the measurements directly in the loss function
     opt_func = Optimization.OptimizationFunction(f, adalg)
     return opt_func
 end
@@ -479,9 +528,9 @@ end
 function Optimization.OptimizationProblem(problem::HybridPEProblem, p = init_params(problem.model);shuffle = false,
                                                     kwargs...)
     # Create the optimization problem
-    dataloader = MLUtils.DataLoader(problem.measurements, batchsize = problem.batch_size, shuffle = shuffle)
+    # dataloader = MLUtils.DataLoader(problem.measurements, batchsize = problem.batch_size, shuffle = shuffle)
     opt_func = Optimization.OptimizationFunction(problem; kwargs...)
-    return OptimizationProblem(opt_func, p, dataloader; lb = problem.lb, ub = problem.ub)
+    return OptimizationProblem(opt_func, p; lb = problem.lb, ub = problem.ub)
 end
 
 function Optimization.EnsembleProblem(problem::HybridPEProblem;
@@ -505,3 +554,52 @@ function latin_hypercube(trajectories::Int, problem::HybridPEProblem; generation
     return scaled_samples
 end
 
+#### SINDy METHODS ####
+function polynomial_basis(x::Array, degree::Int = 1)
+    @assert degree > 0
+    n_x = length(x)
+    n_c = binomial(n_x + degree, degree)
+    eqs = Array{Num}(undef, n_c)
+    _check_degree(x) = sum(x) <= degree ? true : false
+    itr = Base.Iterators.product([0:degree for i in 1:n_x]...)
+    itr_ = Base.Iterators.Stateful(Base.Iterators.filter(_check_degree, itr))
+    filled = false
+    @inbounds for i in 1:n_c
+        eqs[i] = 1
+        filled = true
+        for (xi, ci) in zip(x, popfirst!(itr_))
+            if !iszero(ci)
+                filled ? eqs[i] = xi^ci : eqs[i] *= xi^ci
+                filled = false
+            end
+        end
+    end
+    eqs
+end
+
+species = unknowns(sys_known)
+unknown_basis = polynomial_basis(species, 2) 
+
+Base.occursin(needle::Num, haystack::Int64) = false # Override occursin for Num types to always return false whenever haystack is an Int64
+function create_unknown_eqs(sys_known::AbstractTimeDependentSystem, unknown_basis::Vector{T}; Ξ = nothing) where T <: Union{Num}
+    #remove basis functions that are already in the known system
+    if isnothing(Ξ)
+        @parameters Ξ[1:length(unknown_basis), 1:length(unknowns(sys_known))]
+    end 
+    known_species = unknowns(sys_known)
+    known_eqs = equations(sys_known)
+    Ξ = hcat(Ξ)
+    #create empty vector to hold the unknown equations
+    unknown_eqs = Vector{Any}(undef, length(known_eqs))
+    #if equation is already in the known system, remove it from the unknown basis
+    for (i,k_eq) in enumerate(known_eqs)
+        eq_basis_funs = copy(unknown_basis)
+        for (j, basis_fun) in enumerate(unknown_basis)
+            if occursin(basis_fun, k_eq.rhs)
+                eq_basis_funs[j] = 0
+            end
+        end
+        unknown_eqs[i] = Equation(k_eq.lhs, sum(eq_basis_funs .* Ξ[i, :]))
+    end 
+    return unknown_eqs
+end

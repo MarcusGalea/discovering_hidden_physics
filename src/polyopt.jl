@@ -1,5 +1,3 @@
-using Pkg
-Pkg.activate("scripts/")
 using Reexport
 @reexport using Optimization
 using Optimization.SciMLBase, OptimizationOptimJL, OptimizationOptimisers

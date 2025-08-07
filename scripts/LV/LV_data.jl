@@ -1,8 +1,4 @@
-using Pkg
-Pkg.activate("scripts\\")
-# Pkg.instantiate()
 
-Pkg.status()
 using Revise, Optimization,Optim, OptimizationOptimJL,OptimizationPolyalgorithms, ModelingToolkit,DifferentialEquations,Plots, Lux, PEtab, Random, Distributions
 seed = 0 #set seed for reproducibility
 rng = Random.default_rng(seed) #create a random number generator with the seed

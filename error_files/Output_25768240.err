@@ -1,0 +1,83 @@
+Loaded module: julia/1.11.5
+WARNING: using HyperTuning.parameters in module Main conflicts with an existing identifier.
+  Activating project at `~/speciale/discovering_hidden_physics/scripts`
+┌ Warning: To maintain consistency with solution indexing, keyword argument vars will be removed in a future version. Please use keyword argument idxs instead.
+│   caller = ip:0x0
+└ @ Core :-1
+ERROR: LoadError: TaskFailedException
+
+    nested task error: type HybridPEProblem has no field loss_func
+    Stacktrace:
+      [1] getproperty
+        @ ./Base.jl:49 [inlined]
+      [2] (::var"#90#91"{HybridPEProblem})(p::ComponentVector{Float64, Vector{Float64}, Tuple{Axis{(sys = ViewAxis(1:2, Axis(α = 1, γ = 2)), surrogate = ViewAxis(3:12, Axis(var"Ξ[1, 3]" = 1, var"Ξ[2, 5]" = 2, var"Ξ[1, 5]" = 3, var"Ξ[1, 6]" = 4, var"Ξ[2, 3]" = 5, var"Ξ[1, 1]" = 6, var"Ξ[2, 1]" = 7, var"Ξ[2, 6]" = 8, var"Ξ[1, 4]" = 9, var"Ξ[2, 2]" = 10)))}}}, ::SciMLBase.NullParameters)
+        @ Main ~/speciale/discovering_hidden_physics/src/hybrid_model.jl:541
+      [3] (::OptimizationFunction{true, AutoForwardDiff{nothing, Nothing}, var"#90#91"{HybridPEProblem}, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, typeof(SciMLBase.DEFAULT_OBSERVED_NO_TIME), Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing})(::ComponentVector{Float64, Vector{Float64}, Tuple{Axis{(sys = ViewAxis(1:2, Axis(α = 1, γ = 2)), surrogate = ViewAxis(3:12, Axis(var"Ξ[1, 3]" = 1, var"Ξ[2, 5]" = 2, var"Ξ[1, 5]" = 3, var"Ξ[1, 6]" = 4, var"Ξ[2, 3]" = 5, var"Ξ[1, 1]" = 6, var"Ξ[2, 1]" = 7, var"Ξ[2, 6]" = 8, var"Ξ[1, 4]" = 9, var"Ξ[2, 2]" = 10)))}}}, ::Vararg{Any})
+        @ SciMLBase ~/.julia/packages/SciMLBase/sN1tQ/src/scimlfunctions.jl:4220
+      [4] (::var"#3#4"{OptimizationProblem{true, OptimizationFunction{true, AutoForwardDiff{nothing, Nothing}, var"#90#91"{HybridPEProblem}, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, typeof(SciMLBase.DEFAULT_OBSERVED_NO_TIME), Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing}, ComponentVector{Float64, Vector{Float64}, Tuple{Axis{(sys = ViewAxis(1:2, Axis(α = 1, γ = 2)), surrogate = ViewAxis(3:12, Axis(var"Ξ[1, 3]" = 1, var"Ξ[2, 5]" = 2, var"Ξ[1, 5]" = 3, var"Ξ[1, 6]" = 4, var"Ξ[2, 3]" = 5, var"Ξ[1, 1]" = 6, var"Ξ[2, 1]" = 7, var"Ξ[2, 6]" = 8, var"Ξ[1, 4]" = 9, var"Ξ[2, 2]" = 10)))}}}, SciMLBase.NullParameters, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, @Kwargs{}}})(x::ComponentVector{Float64, Vector{Float64}, Tuple{Axis{(sys = ViewAxis(1:2, Axis(α = 1, γ = 2)), surrogate = ViewAxis(3:12, Axis(var"Ξ[1, 3]" = 1, var"Ξ[2, 5]" = 2, var"Ξ[1, 5]" = 3, var"Ξ[1, 6]" = 4, var"Ξ[2, 3]" = 5, var"Ξ[1, 1]" = 6, var"Ξ[2, 1]" = 7, var"Ξ[2, 6]" = 8, var"Ξ[1, 4]" = 9, var"Ξ[2, 2]" = 10)))}}})
+        @ Main ~/speciale/discovering_hidden_physics/src/polyopt.jl:25
+      [5] __solve(::OptimizationProblem{true, OptimizationFunction{true, AutoForwardDiff{nothing, Nothing}, var"#90#91"{HybridPEProblem}, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, typeof(SciMLBase.DEFAULT_OBSERVED_NO_TIME), Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing}, ComponentVector{Float64, Vector{Float64}, Tuple{Axis{(sys = ViewAxis(1:2, Axis(α = 1, γ = 2)), surrogate = ViewAxis(3:12, Axis(var"Ξ[1, 3]" = 1, var"Ξ[2, 5]" = 2, var"Ξ[1, 5]" = 3, var"Ξ[1, 6]" = 4, var"Ξ[2, 3]" = 5, var"Ξ[1, 1]" = 6, var"Ξ[2, 1]" = 7, var"Ξ[2, 6]" = 8, var"Ξ[1, 4]" = 9, var"Ξ[2, 2]" = 10)))}}}, SciMLBase.NullParameters, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, @Kwargs{}}, ::PolyOptAdamBFGS{Float64}; maxiters::Int64, kwargs::@Kwargs{show_every::Int64, callback::var"#callback#85"{Int64, Int64, Float64, String, String, String, @Kwargs{}, HybridPEProblem, Matrix{String}}})
+        @ Main ~/speciale/discovering_hidden_physics/src/polyopt.jl:26
+      [6] solve(::OptimizationProblem{true, OptimizationFunction{true, AutoForwardDiff{nothing, Nothing}, var"#90#91"{HybridPEProblem}, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, typeof(SciMLBase.DEFAULT_OBSERVED_NO_TIME), Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing}, ComponentVector{Float64, Vector{Float64}, Tuple{Axis{(sys = ViewAxis(1:2, Axis(α = 1, γ = 2)), surrogate = ViewAxis(3:12, Axis(var"Ξ[1, 3]" = 1, var"Ξ[2, 5]" = 2, var"Ξ[1, 5]" = 3, var"Ξ[1, 6]" = 4, var"Ξ[2, 3]" = 5, var"Ξ[1, 1]" = 6, var"Ξ[2, 1]" = 7, var"Ξ[2, 6]" = 8, var"Ξ[1, 4]" = 9, var"Ξ[2, 2]" = 10)))}}}, SciMLBase.NullParameters, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, @Kwargs{}}, ::PolyOptAdamBFGS{Float64}; kwargs::@Kwargs{show_every::Int64, maxiters::Int64, callback::var"#callback#85"{Int64, Int64, Float64, String, String, String, @Kwargs{}, HybridPEProblem, Matrix{String}}})
+        @ SciMLBase ~/.julia/packages/SciMLBase/sN1tQ/src/solve.jl:134
+      [7] batch_func(i::Int64, prob::EnsembleProblem{OptimizationProblem{true, OptimizationFunction{true, AutoForwardDiff{nothing, Nothing}, var"#90#91"{HybridPEProblem}, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, typeof(SciMLBase.DEFAULT_OBSERVED_NO_TIME), Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing}, ComponentVector{Float64, Vector{Float64}, Tuple{Axis{(sys = ViewAxis(1:2, Axis(α = 1, γ = 2)), surrogate = ViewAxis(3:12, Axis(var"Ξ[1, 3]" = 1, var"Ξ[2, 5]" = 2, var"Ξ[1, 5]" = 3, var"Ξ[1, 6]" = 4, var"Ξ[2, 3]" = 5, var"Ξ[1, 1]" = 6, var"Ξ[2, 1]" = 7, var"Ξ[2, 6]" = 8, var"Ξ[1, 4]" = 9, var"Ξ[2, 2]" = 10)))}}}, SciMLBase.NullParameters, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, @Kwargs{}}, var"#prob_func#94", typeof(SciMLBase.DEFAULT_OUTPUT_FUNC), typeof(SciMLBase.DEFAULT_REDUCTION), Nothing}, alg::PolyOptAdamBFGS{Float64}; kwargs::@Kwargs{show_every::Int64, maxiters::Int64, callback::var"#callback#85"{Int64, Int64, Float64, String, String, String, @Kwargs{}, HybridPEProblem, Matrix{String}}})
+        @ SciMLBase ~/.julia/packages/SciMLBase/sN1tQ/src/ensemble/basic_ensemble_solve.jl:235
+      [8] batch_func
+        @ ~/.julia/packages/SciMLBase/sN1tQ/src/ensemble/basic_ensemble_solve.jl:222 [inlined]
+      [9] #728
+        @ ~/.julia/packages/SciMLBase/sN1tQ/src/ensemble/basic_ensemble_solve.jl:294 [inlined]
+     [10] responsible_map
+        @ ~/.julia/packages/SciMLBase/sN1tQ/src/ensemble/basic_ensemble_solve.jl:287 [inlined]
+     [11] #solve_batch#727
+        @ ~/.julia/packages/SciMLBase/sN1tQ/src/ensemble/basic_ensemble_solve.jl:293 [inlined]
+     [12] solve_batch
+        @ ~/.julia/packages/SciMLBase/sN1tQ/src/ensemble/basic_ensemble_solve.jl:292 [inlined]
+     [13] solve_batch(prob::EnsembleProblem{OptimizationProblem{true, OptimizationFunction{true, AutoForwardDiff{nothing, Nothing}, var"#90#91"{HybridPEProblem}, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, typeof(SciMLBase.DEFAULT_OBSERVED_NO_TIME), Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing}, ComponentVector{Float64, Vector{Float64}, Tuple{Axis{(sys = ViewAxis(1:2, Axis(α = 1, γ = 2)), surrogate = ViewAxis(3:12, Axis(var"Ξ[1, 3]" = 1, var"Ξ[2, 5]" = 2, var"Ξ[1, 5]" = 3, var"Ξ[1, 6]" = 4, var"Ξ[2, 3]" = 5, var"Ξ[1, 1]" = 6, var"Ξ[2, 1]" = 7, var"Ξ[2, 6]" = 8, var"Ξ[1, 4]" = 9, var"Ξ[2, 2]" = 10)))}}}, SciMLBase.NullParameters, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, @Kwargs{}}, var"#prob_func#94", typeof(SciMLBase.DEFAULT_OUTPUT_FUNC), typeof(SciMLBase.DEFAULT_REDUCTION), Nothing}, alg::PolyOptAdamBFGS{Float64}, ensemblealg::EnsembleThreads, II::UnitRange{Int64}, pmap_batch_size::Int64; kwargs::@Kwargs{show_every::Int64, maxiters::Int64, callback::var"#callback#85"{Int64, Int64, Float64, String, String, String, @Kwargs{}, HybridPEProblem, Matrix{String}}})
+        @ SciMLBase ~/.julia/packages/SciMLBase/sN1tQ/src/ensemble/basic_ensemble_solve.jl:303
+     [14] solve_batch
+        @ ~/.julia/packages/SciMLBase/sN1tQ/src/ensemble/basic_ensemble_solve.jl:299 [inlined]
+     [15] macro expansion
+        @ ./timing.jl:421 [inlined]
+     [16] (::SciMLBase.var"#717#718"{Int64, Int64, Int64, @Kwargs{show_every::Int64, maxiters::Int64, callback::var"#callback#85"{Int64, Int64, Float64, String, String, String, @Kwargs{}, HybridPEProblem, Matrix{String}}}, EnsembleProblem{OptimizationProblem{true, OptimizationFunction{true, AutoForwardDiff{nothing, Nothing}, var"#90#91"{HybridPEProblem}, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, typeof(SciMLBase.DEFAULT_OBSERVED_NO_TIME), Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing}, ComponentVector{Float64, Vector{Float64}, Tuple{Axis{(sys = ViewAxis(1:2, Axis(α = 1, γ = 2)), surrogate = ViewAxis(3:12, Axis(var"Ξ[1, 3]" = 1, var"Ξ[2, 5]" = 2, var"Ξ[1, 5]" = 3, var"Ξ[1, 6]" = 4, var"Ξ[2, 3]" = 5, var"Ξ[1, 1]" = 6, var"Ξ[2, 1]" = 7, var"Ξ[2, 6]" = 8, var"Ξ[1, 4]" = 9, var"Ξ[2, 2]" = 10)))}}}, SciMLBase.NullParameters, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, @Kwargs{}}, var"#prob_func#94", typeof(SciMLBase.DEFAULT_OUTPUT_FUNC), typeof(SciMLBase.DEFAULT_REDUCTION), Nothing}, PolyOptAdamBFGS{Float64}, EnsembleThreads})()
+        @ SciMLBase ~/.julia/packages/SciMLBase/sN1tQ/src/ensemble/basic_ensemble_solve.jl:188
+     [17] with_logstate(f::SciMLBase.var"#717#718"{Int64, Int64, Int64, @Kwargs{show_every::Int64, maxiters::Int64, callback::var"#callback#85"{Int64, Int64, Float64, String, String, String, @Kwargs{}, HybridPEProblem, Matrix{String}}}, EnsembleProblem{OptimizationProblem{true, OptimizationFunction{true, AutoForwardDiff{nothing, Nothing}, var"#90#91"{HybridPEProblem}, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, typeof(SciMLBase.DEFAULT_OBSERVED_NO_TIME), Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing}, ComponentVector{Float64, Vector{Float64}, Tuple{Axis{(sys = ViewAxis(1:2, Axis(α = 1, γ = 2)), surrogate = ViewAxis(3:12, Axis(var"Ξ[1, 3]" = 1, var"Ξ[2, 5]" = 2, var"Ξ[1, 5]" = 3, var"Ξ[1, 6]" = 4, var"Ξ[2, 3]" = 5, var"Ξ[1, 1]" = 6, var"Ξ[2, 1]" = 7, var"Ξ[2, 6]" = 8, var"Ξ[1, 4]" = 9, var"Ξ[2, 2]" = 10)))}}}, SciMLBase.NullParameters, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, @Kwargs{}}, var"#prob_func#94", typeof(SciMLBase.DEFAULT_OUTPUT_FUNC), typeof(SciMLBase.DEFAULT_REDUCTION), Nothing}, PolyOptAdamBFGS{Float64}, EnsembleThreads}, logstate::Base.CoreLogging.LogState)
+        @ Base.CoreLogging ./logging/logging.jl:522
+     [18] with_logger
+        @ ./logging/logging.jl:632 [inlined]
+     [19] __solve(prob::EnsembleProblem{OptimizationProblem{true, OptimizationFunction{true, AutoForwardDiff{nothing, Nothing}, var"#90#91"{HybridPEProblem}, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, typeof(SciMLBase.DEFAULT_OBSERVED_NO_TIME), Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing}, ComponentVector{Float64, Vector{Float64}, Tuple{Axis{(sys = ViewAxis(1:2, Axis(α = 1, γ = 2)), surrogate = ViewAxis(3:12, Axis(var"Ξ[1, 3]" = 1, var"Ξ[2, 5]" = 2, var"Ξ[1, 5]" = 3, var"Ξ[1, 6]" = 4, var"Ξ[2, 3]" = 5, var"Ξ[1, 1]" = 6, var"Ξ[2, 1]" = 7, var"Ξ[2, 6]" = 8, var"Ξ[1, 4]" = 9, var"Ξ[2, 2]" = 10)))}}}, SciMLBase.NullParameters, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, @Kwargs{}}, var"#prob_func#94", typeof(SciMLBase.DEFAULT_OUTPUT_FUNC), typeof(SciMLBase.DEFAULT_REDUCTION), Nothing}, alg::PolyOptAdamBFGS{Float64}, ensemblealg::EnsembleThreads; trajectories::Int64, batch_size::Int64, progress_aggregate::Bool, pmap_batch_size::Int64, kwargs::@Kwargs{show_every::Int64, maxiters::Int64, callback::var"#callback#85"{Int64, Int64, Float64, String, String, String, @Kwargs{}, HybridPEProblem, Matrix{String}}})
+        @ SciMLBase ~/.julia/packages/SciMLBase/sN1tQ/src/ensemble/basic_ensemble_solve.jl:172
+     [20] __solve
+        @ ~/.julia/packages/SciMLBase/sN1tQ/src/ensemble/basic_ensemble_solve.jl:164 [inlined]
+     [21] #solve#742
+        @ ~/.julia/packages/SciMLBase/sN1tQ/src/solve.jl:140 [inlined]
+     [22] hypertuning_objective(trial::HyperTuning.Trial{Int64})
+        @ Main ~/speciale/discovering_hidden_physics/scripts/LV/LV_SINDy.jl:127
+     [23] evaluate_trial!(f::typeof(hypertuning_objective), trial::HyperTuning.Trial{Int64}, verbose::Bool)
+        @ HyperTuning ~/.julia/packages/HyperTuning/7Qthr/src/evaluator/sequential.jl:5
+     [24] macro expansion
+        @ ~/.julia/packages/HyperTuning/7Qthr/src/evaluator/threads.jl:6 [inlined]
+     [25] (::HyperTuning.var"#51#threadsfor_fun#64"{HyperTuning.var"#51#threadsfor_fun#63#65"{typeof(hypertuning_objective), Vector{HyperTuning.Trial}, Bool, Base.OneTo{Int64}}})(tid::Int64; onethread::Bool)
+        @ HyperTuning ./threadingconstructs.jl:253
+     [26] #51#threadsfor_fun
+        @ ./threadingconstructs.jl:220 [inlined]
+     [27] (::Base.Threads.var"#1#2"{HyperTuning.var"#51#threadsfor_fun#64"{HyperTuning.var"#51#threadsfor_fun#63#65"{typeof(hypertuning_objective), Vector{HyperTuning.Trial}, Bool, Base.OneTo{Int64}}}, Int64})()
+        @ Base.Threads ./threadingconstructs.jl:154
+
+...and 11 more exceptions.
+
+Stacktrace:
+ [1] threading_run(fun::HyperTuning.var"#51#threadsfor_fun#64"{HyperTuning.var"#51#threadsfor_fun#63#65"{typeof(hypertuning_objective), Vector{HyperTuning.Trial}, Bool, Base.OneTo{Int64}}}, static::Bool)
+   @ Base.Threads ./threadingconstructs.jl:173
+ [2] macro expansion
+   @ ./threadingconstructs.jl:190 [inlined]
+ [3] evaluate_objective_threads(f::Function, scenario::Scenario)
+   @ HyperTuning ~/.julia/packages/HyperTuning/7Qthr/src/evaluator/threads.jl:5
+ [4] evaluate_objective
+   @ ~/.julia/packages/HyperTuning/7Qthr/src/evaluator/evaluate_objective.jl:8 [inlined]
+ [5] optimize!(f::Function, scenario::Scenario)
+   @ HyperTuning ~/.julia/packages/HyperTuning/7Qthr/src/optimize.jl:29
+ [6] optimize(f::Function, scenario::Scenario)
+   @ HyperTuning ~/.julia/packages/HyperTuning/7Qthr/src/optimize.jl:47
+ [7] top-level scope
+   @ ~/speciale/discovering_hidden_physics/scripts/LV/LV_SINDy.jl:142
+in expression starting at /zhome/12/0/147154/speciale/discovering_hidden_physics/scripts/LV/LV_SINDy.jl:142

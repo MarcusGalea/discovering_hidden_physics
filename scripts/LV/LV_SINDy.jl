@@ -1,6 +1,5 @@
 using Pkg
 Pkg.activate("scripts//")
-Pkg.instantiate()
 include("../../src/polyopt.jl")
 include("LV_hidden_model.jl")
 include("../../src/hybrid_model.jl")
@@ -41,40 +40,46 @@ initial_conditions = Dict(
     "cond1" => Dict([x => 40.0, y => 9.0]), #remember to define variables before using them
 )
 
-
-peprob = HybridPEProblem(hmodel, obs, train_measurements, u0map; 
-                   conditions = initial_conditions)#, batch_size = batch_size,)
 valpeprob = HybridPEProblem(hmodel, obs, test_measurements, u0map; 
-                   conditions = initial_conditions)
+                   conditions = initial_conditions,
+                   ens_alg = EnsembleSplitThreads())
 
 
 
 n_runs = 1 # number of runs for the ensemble
-max_trials = 1
+max_trials = 1000
 gt_p = init_params(hmodel)
 max_dist_from_gt = 0.5
 lb = gt_p .- max_dist_from_gt
 ub = gt_p .+ max_dist_from_gt
-initp_samples = init_params(hmodel, n = n_runs, lb = lb, ub = ub)
+initp_samples = 0.0*init_params(hmodel, n = n_runs, lb = lb, ub = ub)
 
 # peprob.obj_func(gt_p, train_measurements)
 
 
 
-cb = create_callback(peprob; plot_every = 0, report_every = 500, loss_upper_bound = 1e7,
-                       xlabel = "Time", ylabel = "Population", title = "Lotka-Volterra SINDy")
 
-#DANGEROUS CONVSERION INCOMING! MIGHT RUIN OPTIMIZATION
-using Base
-import Base: convert
-using ForwardDiff
-Base.convert(::Type{T}, x::ForwardDiff.Dual)  where T <: Number = x.value
 # Convert Dual numbers to Float64 by taking the value part
 
-options = Dict(:maxiters => 1000, :show_every => 1, :callback => cb, :trajectories => n_runs)
+
+# alpha = 1.0
+# l1_ratio = 0.5 # L1 regularization ratio
+
+# opt_prob = Optimization.EnsembleProblem(peprob; initp_samples = initp_samples,
+#                           alpha = alpha, l1_ratio = l1_ratio, adalg = Optimization.AutoForwardDiff(),
+#                           force_dtmin = true,
+#                           )
 
 # ensembleoptsol = Optimization.solve(opt_prob, PolyOptAdamBFGS(lr = 1e-4), EnsembleThreads(); options...)
+# #save ensembleoptsol to file
+# run_save_path = joinpath(model_dir, "ensembleoptsol_run_$(n_runs).jld2")
+# @info "Saving ensemble optimization solution to $run_save_path"
+# save(run_save_path, "ensembleoptsol", ensembleoptsol)
 
+# ens_prob = EnsembleProblem(peprob.model, [[40.,9.0]], peprob.tspan, ensembleoptsol[1].u)
+# solve(ens_prob, Tsit5(), EnsembleDistributed(), force_dtmin = true, trajectories = 1, sensealg = ForwardDiffSensitivity(), 
+#       saveat = peprob.measurements.time)
+#       plot(sol)
 # sim = simulate_solution(peprob, initp_samples, saveat = collect(0:0.1:100.0))
 # scatter(timedata[sample_idcs], data[sample_idcs, :], label=["Prey_data" "Predator_data"], xlabel="Time", ylabel="Population", title="Lotka-Volterra SINDy", legend =:topright)
 # plot!(sim, label = ["Prey_model" "Predator_model"], linewidth=2, markersize=4, legend =:topright)
@@ -82,6 +87,7 @@ options = Dict(:maxiters => 1000, :show_every => 1, :callback => cb, :trajectori
 
 using Dates
 date_str = Dates.format(now(), "yyyy-mm-dd_HH-MM-SS")
+println("Date string: $date_str")
 
 save_path = joinpath(model_dir, "ensembleoptsol_$(date_str).jld2")
 save_path_hyperparams = joinpath(model_dir, "hyperparams_$(date_str).jld2")
@@ -93,51 +99,68 @@ end
 
 using HyperTuning
 scenario = Scenario(lr_exponent = (-6.0..1.0),
-                    alpha_exponent = (-6.0..2.0),
+                    alpha_exponent = (-6.0..3.0),
                     l1_ratio = (0.0..1.0),
+                    beta1 = (0.0..1.0),
+                    beta2 = (0.0..1.0),
                     max_trials = max_trials,
+                    sampler = GridSampler(),
 )
+
+
+peprob = HybridPEProblem(hmodel, obs, train_measurements, u0map; 
+                conditions = initial_conditions)
+                #, batch_size = batch_size,)# OPTIONS HERE ARE UNECESSARY
+cb = create_callback(peprob; plot_every = 0, report_every = 0, loss_upper_bound = 1e-7,)
+options = Dict(:maxiters => 1000, :show_every => 1, :callback => cb, :trajectories => n_runs)
+
 
 function hypertuning_objective(trial)
     @unpack lr_exponent, alpha_exponent, l1_ratio = trial
     alpha = 10.0 ^ alpha_exponent
     lr = 10.0 ^ lr_exponent
+    
+    peprob = HybridPEProblem(hmodel, obs, train_measurements, u0map; 
+                   conditions = initial_conditions, alpha = alpha, l1_ratio = l1_ratio,
+                   )#, batch_size = batch_size,)# OPTIONS HERE ARE UNECESSARY
+
     opt_prob = Optimization.EnsembleProblem(peprob; initp_samples = initp_samples,
-                          alpha = alpha, l1_ratio = l1_ratio, adalg = Optimization.AutoForwardDiff())
+                            adalg = Optimization.AutoForwardDiff())
     ensembleoptsol = Optimization.solve(opt_prob, PolyOptAdamBFGS(lr=lr), EnsembleThreads(), trajectories = n_runs; options...)
     best_run = argmin([valpeprob.obj_func(sol.u) for sol in ensembleoptsol])
     val_loss = valpeprob.obj_func(ensembleoptsol[best_run].u)    
     #save each run to a file
-    run_save_path = joinpath(save_path_allruns, "run_$(replace(string(res.best_trial.trials[1]), " " => "_")).jld2")
-    save(run_save_path, "ensembleoptsol", ensembleoptsol, "val_loss", val_loss)
+    trial_string = join(["$(hyperp)_$(round(val,sigdigits = 4))_" for (hyperp, val) in trial.values])
+    current_save_path = joinpath(save_path_allruns, "val_loss_$(round(val_loss, sigdigits = 3))_$(trial_string).jld2")
+    save(current_save_path, "ensembleoptsol", (initp = initp_samples[best_run], final_p = ensembleoptsol[best_run].u, val_loss = val_loss, train_loss = ensembleoptsol[best_run].objective))
     return val_loss
 end
 
+# trial = hypertune_res.best_trial.trials[1]
+# loading_path = joinpath(save_path_allruns, "loss_1.0e16_lr_exponent_-3.558_l1_ratio_0.6935_alpha_exponent_-3.26_.jld2")
+# loaded_sol = load(loading_path, "ensembleoptsol")
+
+
 hypertune_res = HyperTuning.optimize(hypertuning_objective, scenario)
-@info "Best parameters: $(hypertune_res.params), Best loss: $(hypertune_res.loss)"
+@info "Best loss: $(hypertune_res.best_trial)"
+save(save_path_hyperparams, "hypertune_res", hypertune_res)
+
+# #load hypertune_res
+# loaded_hypertune_res = load(save_path_hyperparams, "hypertune_res")
 
 
+# # #REDO BEST RUN WITH BEST PARAMETERS
+# # @unpack lr_exponent, alpha_exponent, l1_ratio = hypertune_res
+# # alpha_exponent = 1e-1
+# # lr_exponent = -3.0
+# # alpha = 10.0 ^ alpha_exponent
+# # lr = 10.0 ^ lr_exponent
+# # l1_ratio = 0.5
+# # opt_prob = Optimization.EnsembleProblem(peprob; initp_samples = initp_samples,
+# #                           alpha = alpha, l1_ratio = l1_ratio, adalg = Optimization.AutoForwardDiff())
+# # ensembleoptsol = Optimization.solve(opt_prob, PolyOptAdamBFGS(lr=lr), EnsembleThreads(), trajectories = n_runs; options...)
+# # #save ensembleoptsol to file
+# # #get date
 
-#REDO BEST RUN WITH BEST PARAMETERS
-@unpack lr_exponent, alpha_exponent, l1_ratio = hypertune_res
-alpha = 10.0 ^ alpha_exponent
-lr = 10.0 ^ lr_exponent
-opt_prob = Optimization.EnsembleProblem(peprob; initp_samples = initp_samples,
-                          alpha = alpha, l1_ratio = l1_ratio, adalg = Optimization.AutoForwardDiff())
-ensembleoptsol = Optimization.solve(opt_prob, PolyOptAdamBFGS(lr=lr), EnsembleThreads(), trajectories = n_runs; options...)
-#save ensembleoptsol to file
-#get date
-
-@info "Saving ensemble optimization solution to $save_path and hyperparameter tuning results to $save_path_hyperparams"
-save(save_path, "ensembleoptsol", ensembleoptsol)
-
-# using OptimizationOptimisers
-# using IterTools: ncycle
-# function PolyOptHM()
-# end
-# ensembleoptsol = Optimization.solve(opt_prob, Optimisers.Adam(;eta = 1e-4), EnsembleThreads(), trajectories = n_runs; epochs = 100,
-#                                     show_trace = true, show_every = 50, callback = callback)
-# #save ensembleoptsol to file
-# save_path = joinpath(model_dir, "ensembleoptsol.jld2")
-# @info "Saving ensemble optimization solution to $save_path"
+# @info "Saving ensemble optimization solution to $save_path and hyperparameter tuning results to $save_path_hyperparams"
 # save(save_path, "ensembleoptsol", ensembleoptsol)

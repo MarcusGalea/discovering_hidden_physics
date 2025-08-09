@@ -13,6 +13,13 @@ using LatinHypercubeSampling
 using MLUtils
 using Surrogates
 
+
+#DANGEROUS CONVSERION INCOMING! MIGHT RUIN OPTIMIZATION (yet necessary for AD with BFGS)
+using Base
+import Base: convert
+using ForwardDiff
+Base.convert(::Type{T}, x::ForwardDiff.Dual)  where T <: Number = x.value
+
 mutable struct NullModel <: ModelingToolkit.AbstractTimeDependentSystem
     """ A null model that does nothing. Used as a placeholder for surrogate models."""
     name::String
@@ -386,14 +393,15 @@ function simulate_solution(prob::HybridPEProblem, p;
                             tspan = prob.tspan,
                             alg = Tsit5(),
                             ens_alg = EnsembleDistributed(),
-                            saveat =  prob.measurements.time
+                            saveat =  prob.measurements.time,
+                            kwargs...
     )
     # Overwrite the initial conditions with the conditions dictionary
     u0_conditions = overwrite_conditions!(u0map, conditions)
     # Create an EnsembleProblem with the initial conditions and parameters
     ens_prob = DifferentialEquations.EnsembleProblem(prob.model, u0_conditions, tspan, p)
     # Solve the EnsembleProblem
-    sim = solve(ens_prob, alg, ens_alg, trajectories = length(u0_conditions), saveat = saveat)
+    sim = solve(ens_prob, alg, ens_alg, trajectories = length(u0_conditions), saveat = saveat, kwargs...)
 end
 
 function define_loss_function(model::HybridModel, obs::Dict, measurements::DataFrame, u0map; 
@@ -406,7 +414,9 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
                               l1_ratio= 0.0,
                               assume_stable_data = true,
                               unsolved_penalty = 1e+16, # penalty for unsolved simulations,
-                              sensealg = ForwardDiffSensitivity()
+                              sensealg = ForwardDiffSensitivity(),
+                              force_dtmin = true,
+                              kwargs...
                               )
     # Define
     u0_conditions = overwrite_conditions!(u0map, conditions)
@@ -422,10 +432,15 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
     function loss_function(p)#, measurements_batch)
         # measurements_batch = measurements_batch isa DataLoader ? measurements_batch.data : measurements_batch
         ensemble_prob = remake(ensemble_prob, p = p) #SUPER SMART!! This allows us to change the parameters of the ensemble problem without creating a new one
-        sim = solve(ensemble_prob, alg, ens_alg, trajectories = length(u0_conditions), saveat = unique(measurements_batch.time), sensealg = sensealg) #Array
-        if prod(Int.([trajectory.retcode for trajectory in sim])) != 1
-            @warn "Some simulations did not converge. Returning a high loss value."
-            return unsolved_penalty # Return a high loss value if any simulation did not converge
+        sim = solve(ensemble_prob, alg, ens_alg, trajectories = length(u0_conditions), 
+                    saveat = unique(measurements_batch.time), 
+                    sensealg = sensealg,
+                    force_dtmin = force_dtmin,
+                    kwargs...
+                    )
+        if prod([SciMLBase.successful_retcode(trajectory) for trajectory in sim]) != 1
+            # @warn "Some simulations did not converge. Returning a high loss value."
+            return Inf # Return a high loss value if any simulation did not converge
         end
         idx_time = Dict(time => i for (i, time) in enumerate(sim[1].t))
         obs_val_dict = [observable_dict(sim[i], p, model, obs_funs) for i in 1:length(u0_conditions)]
@@ -467,21 +482,24 @@ function create_callback(peprob::HybridPEProblem;  plot_every = 30, report_every
     function callback(state, l;) #callback function to observe training
         sim = simulate_solution(peprob, state.u)
         if l > loss_upper_bound
-            println("Loss exceeded upper bound at iteration $(state.iter). Stopping optimization.")
+            # println("Loss exceeded upper bound at iteration $(state.iter). Stopping optimization.")
             return true # Stop the optimization if loss exceeds upper bound
         end
-        if prod(Int.([trajectory.retcode for trajectory in sim])) != 1
+        if prod([SciMLBase.successful_retcode(trajectory) for trajectory in sim]) != 1
             println("Simulation failed at iteration $(state.iter). Stopping optimization.")
             return true # Stop the optimization if simulation fails
         end
-        if state.iter % report_every == 0
-            println("Iteration: $(state.iter), Loss: $(l), Parameters: $(state.u)")
-
+        if report_every > 0
+            if state.iter % report_every == 0
+                println("Iteration: $(state.iter), Loss: $(l), Parameters: $(state.u)")
+            end
         end
-        if plot_every > 0 && state.iter % plot_every == 0
-            p1 = plot(sim, label = label.*"_fit", linewidth=2, markersize=4, legend =:topright)
-            scatter!(p1, timedata[sample_idcs], data[sample_idcs, :], label=label.*"_data", legend =:topright, xlabel = xlabel, ylabel = ylabel, title = title, kwargs...)
-            display(p1)
+        if plot_every > 0
+            if state.iter % plot_every == 0
+                p1 = plot(sim, label = label.*"_fit", linewidth=2, markersize=4, legend =:topright)
+                scatter!(p1, timedata[sample_idcs], data[sample_idcs, :], label=label.*"_data", legend =:topright, xlabel = xlabel, ylabel = ylabel, title = title, kwargs...)
+                display(p1)
+            end
         end
         return false
     end
@@ -515,12 +533,12 @@ end
 import Optimization: OptimizationProblem, OptimizationFunction
 function Optimization.OptimizationFunction(problem::HybridPEProblem; adalg = Optimization.AutoForwardDiff(),
                                                     kwargs...)
-    loss_func = define_loss_function(problem.model, problem.observations, problem.measurements, problem.u0map; 
-                        conditions = problem.conditions, tspan = problem.tspan, kwargs...)
+    # loss_func = define_loss_function(problem.model, problem.observations, problem.measurements, problem.u0map; 
+    #                     conditions = problem.conditions, tspan = problem.tspan, kwargs...)
     # Create the optimization function
     #create function that ignores second input
     # f = (p, data) -> loss_func(p, data)
-    f = (p, _) -> loss_func(p) # Ignore the data input, as we are using the measurements directly in the loss function
+    f = (p, _) -> problem.obj_func(p) # Ignore the data input, as we are using the measurements directly in the loss function
     opt_func = Optimization.OptimizationFunction(f, adalg)
     return opt_func
 end

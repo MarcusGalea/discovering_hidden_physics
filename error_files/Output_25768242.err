@@ -1,0 +1,17 @@
+Loaded module: julia/1.11.5
+WARNING: using HyperTuning.parameters in module Main conflicts with an existing identifier.
+  Activating project at `~/speciale/discovering_hidden_physics/scripts`
+┌ Warning: To maintain consistency with solution indexing, keyword argument vars will be removed in a future version. Please use keyword argument idxs instead.
+│   caller = ip:0x0
+└ @ Core :-1
+┌ Info: Best loss: ┌────────────────┬─────────┐
+│ │          Trial │   Value │
+│ │            515 │         │
+│ ├────────────────┼─────────┤
+│ │ alpha_exponent │    -6.0 │
+│ │       l1_ratio │     0.0 │
+│ │    lr_exponent │    -2.5 │
+│ │         Pruned │   false │
+│ │        Success │   false │
+│ │      Objective │ 243.954 │
+└ └────────────────┴─────────┘

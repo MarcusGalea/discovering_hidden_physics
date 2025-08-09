@@ -1,12 +1,13 @@
 include("LV_hidden_model.jl")
 include("../../src/hybrid_model.jl")
+include("../../src/polyopt.jl")
 # hmodel = HybridModel(sys_known, sys_unknown_gt; rng = rng)
 hmodel = HybridModel(sys_known, sys_unknown_gt; rng = rng)
 
 rootdir = dirname(dirname(dirname(@__FILE__)))
 model_dir = joinpath(rootdir , "models", "lotka_volterra", "Reg", "seed_$seed")
-using IterTools: ncycle
-using OptimizationOptimisers
+# using IterTools: ncycle
+# using OptimizationOptimisers
 
 alpha = 0.0 # Lasso penalty
 l1_ratio = 0.5 # Lasso/Ridge ratio

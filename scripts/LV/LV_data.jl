@@ -21,6 +21,7 @@ params =  Dict([α => 0.1,
                 β => 0.02, 
                 δ => 0.01,
                 γ => 0.3])
+noise = 0.2 # noise level for the data
 measured_quantities = [z ~ x + y]  # Example of a measured quantity
 @named sys = ODESystem(eqs, t, [x, y], [α, β, γ, δ]; observed = measured_quantities, defaults = params)
 sys = complete(sys)
@@ -35,6 +36,9 @@ odefun = ODEFunction(sys, unknowns(sys), parameters(sys))
 prob = ODEProblem(odefun, [40.0, 9.0], tspan, [0.1, 0.02, 0.01, 0.3])
 sol = solve(prob, Tsit5(), saveat=dt)
 data = hcat(sol.u...)'
+#add noise
+data .+= randn(size(data)) .* noise
+
 timedata = sol.t
 plot(sol, vars=(x, y), xlabel="prey", ylabel="predator",
      title="Lotka-Volterra Model", label="Solution",
@@ -45,7 +49,8 @@ using DataFrames
 n_data = size(data, 1)
 sample_size = 200
 
-sample_idcs = rand(1:n_data, sample_size)
+sample_idcs = rand(rng, 2:n_data, sample_size-1)
+sample_idcs = [1; sample_idcs]
 scatter(timedata[sample_idcs], data[sample_idcs, :], label=["Prey" "Predator"], xlabel="Time", ylabel="Population", title="Lotka-Volterra Model with Sampled Data")
 
 #split train and test data at 80% of the time series
@@ -56,24 +61,69 @@ prey_df = DataFrame(simulation_id = "cond1", obs_id = "prey_o", time = timedata[
 predator_df = DataFrame(simulation_id = "cond1", obs_id = "predator_o", time = timedata[sample_idcs], measurement= data[sample_idcs, 2],)
 measurements = vcat(prey_df, predator_df)
 
-#split dataframe into train and test sets
+# #split dataframe into train and test sets
+# train_idcs = findall(measurements.time .<= test_time[end])
+# test_idcs = findall(measurements.time .> test_time[end])
+# #save train and test data
+# train_measurements = measurements[train_idcs, :]
+# test_measurements = measurements[test_idcs, :]
+
+#### Multiple initial conditions for ensemble learning
+initial_conditions  = [
+    [40.0, 9.0],
+    [30.0, 8.0],
+    [20.0, 7.0],
+]
+
+function prob_func(prob, i, repeat)
+    remake(prob, u0 = initial_conditions[i])
+end
+#plot dir 
+plotdir = "plots/LV/"
+if !isdir(plotdir)
+    mkpath(plotdir)
+end
+noise = 0.2
+ensemble_prob = EnsembleProblem(prob, prob_func = prob_func)
+sim = solve(ensemble_prob, Tsit5(), EnsembleDistributed(), trajectories = length(initial_conditions), saveat = dt)
+prey_df = [DataFrame(simulation_id = "cond$(i)", obs_id = "prey_o", time = timedata[sample_idcs], measurement = sim[i][sample_idcs][1,:].+noise.*randn(rng, sample_size),) for i in 1:length(initial_conditions)]
+predator_df = [DataFrame(simulation_id = "cond$(i)", obs_id = "predator_o", time = timedata[sample_idcs], measurement = sim[i][sample_idcs][2,:].+noise.*randn(rng, sample_size),) for i in 1:length(initial_conditions)]
+measurements = vcat(prey_df..., predator_df...)
+#plot dataframe
+label = [x]
+colors = [:blue, :green, :orange, :purple, :magenta, :brown]
+plot(sim, legend = :topright, color = hcat(colors...))
+scatter!(measurements.time, measurements.measurement, group = measurements.obs_id.*"_".* measurements.simulation_id, xlabel="Time", ylabel="Population", 
+        title="Lotka-Volterra Model with Sampled Data", legend =:topright, marker = [:circle :star5], color = hcat(colors...), markersize = 2)
+
+# split dataframe into train and test sets
 train_idcs = findall(measurements.time .<= test_time[end])
 test_idcs = findall(measurements.time .> test_time[end])
-#save train and test data½
+#save train and test data
 train_measurements = measurements[train_idcs, :]
 test_measurements = measurements[test_idcs, :]
 
-#### Multiple initial conditions for ensemble learning
+# using FFTW
+# dfft_vals = abs.(fft(sim[1][1,:]))
 
-# initial_conditions  = [
-#     [40.0, 9.0, 0.0],
-#     [20.0, 9.0, 0.0],
-#     [10.0, 9.0, 0.0],
-# ]
-# function prob_func(prob, i, repeat)
-#     remake(prob, u0 = initial_conditions[i])
-# end
 
-# ensemble_prob = EnsembleProblem(prob, prob_func = prob_func)
-# sim = solve(ensemble_prob, Tsit5(), EnsembleDistributed(), trajectories = length(initial_conditions), saveat = dt)
-# scatter(sim[1].t, hcat(sim[1].u...), label=["Prey" "Predator"], xlabel="Time", ylabel="Population", title="Lotka-Volterra Model with Ensemble Data")
+# # Assume y is your time series and t is the time vector
+# y = sim[1][1, :]           # example: first trajectory, first variable
+# dt = sim[1].t[2] - sim[1].t[1]           # sampling interval
+# N = length(y)
+
+# Y = abs.(fft(y))
+
+# plot(Y, title="FFT of Prey Population", xlabel="Frequency", ylabel="Magnitude", label = "FFT")
+# #create vertical line at dominant frequency (dotted line with low opacity)
+# vline!([dominant_freq], color=:red, label="Dominant Frequency $(round(dominant_freq, sigdigits = 2))", linewidth=2, linestyle=:dot, alpha=0.5, legend=:topright)  
+# #save plot
+
+# freqs = (0:N-1) / (N*dt)   # frequency vector
+
+# # Ignore the zero frequency (DC component)
+# peak_idx = argmax(Y[2:div(N,2)]) + 1  # +1 because we skipped the first element
+# dominant_freq = freqs[peak_idx]
+# period = 1 / dominant_freq
+
+# println("Estimated period: ", period)

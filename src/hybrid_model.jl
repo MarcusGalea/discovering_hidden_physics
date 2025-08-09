@@ -253,7 +253,7 @@ function derivative_function!(sys::ODESystem; rng = Random.default_rng(1234))
     return DifferentialEquations.ODEFunction(sys, unknowns(sys), parameters(sys))
 end
 
-@independent_variables t
+# @independent_variables t
 function merge_systems(sys::AbstractTimeDependentSystem, surrogate::AbstractTimeDependentSystem)
     # Merge the ODE system and the surrogate model into a single system (Given they are both symbolic systems)
     D = Differential(t)
@@ -375,7 +375,7 @@ mutable struct HybridPEProblem
 
     #create constructor for HybridModelPE
     HybridPEProblem(model::HybridModel, observables::Dict, measurements::DataFrame, u0map; 
-                  conditions::Dict = overwrite_conditions!(u0map, Dict()), 
+                  conditions::Dict = Dict("cond1" => u0map), 
                   tspan::Tuple = (0.0, maximum(measurements.time)),
                   ub = nothing,
                   lb = nothing,
@@ -393,18 +393,24 @@ function simulate_solution(prob::HybridPEProblem, p;
                             tspan = prob.tspan,
                             alg = Tsit5(),
                             ens_alg = EnsembleDistributed(),
-                            saveat =  prob.measurements.time
+                            saveat =  prob.measurements.time,
+                            kwargs...
     )
     # Overwrite the initial conditions with the conditions dictionary
     u0_conditions = overwrite_conditions!(u0map, conditions)
     # Create an EnsembleProblem with the initial conditions and parameters
     ens_prob = DifferentialEquations.EnsembleProblem(prob.model, u0_conditions, tspan, p)
     # Solve the EnsembleProblem
-    sim = solve(ens_prob, alg, ens_alg, trajectories = length(u0_conditions), saveat = saveat)
+    sim = solve(ens_prob, alg, ens_alg, trajectories = length(u0_conditions), saveat = saveat, kwargs...)
+end
+
+function ModelingToolkit.unknowns(model::HybridModel)
+    # Get the unknowns of the HybridModel system
+    return unknowns(model.sys)
 end
 
 function define_loss_function(model::HybridModel, obs::Dict, measurements::DataFrame, u0map; 
-                              conditions::Dict = Dict(), 
+                              conditions::Dict = Dict("cond1" => u0map), 
                               tspan::Tuple = (0.0, maximum(measurements.time)),
                               alg = Tsit5(),
                               ens_alg = EnsembleDistributed(),
@@ -414,6 +420,7 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
                               assume_stable_data = true,
                               unsolved_penalty = 1e+16, # penalty for unsolved simulations,
                               sensealg = ForwardDiffSensitivity(),
+                              force_dtmin = true,
                               kwargs...
                               )
     # Define
@@ -424,49 +431,60 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
     idx_var = Dict([var => i for (i, var) in enumerate(unknowns(model.sys))]) #create a map from variable name to index
     ensemble_prob = EnsembleProblem(model, u0_conditions, tspan)
     max_t_gt = maximum(measurements.time) # Get the maximum time from the measurements
+    unique_times = unique(measurements.time)
 
-    measurements_batch = measurements # Use the full measurements DataFrame
-
-    function loss_function(p)#, measurements_batch)
-        # measurements_batch = measurements_batch isa DataLoader ? measurements_batch.data : measurements_batch
+    function loss_function(p, second_argument)
         ensemble_prob = remake(ensemble_prob, p = p) #SUPER SMART!! This allows us to change the parameters of the ensemble problem without creating a new one
+        t_upper_bound = max_t_gt
+        if isnothing(second_argument)
+            measurements_batch = measurements # If no measurements are provided, use the full measurements DataFrame
+        elseif second_argument isa DataLoader
+            measurements_batch = second_argument.data
+        elseif second_argument isa DataFrame
+            measurements_batch = second_argument
+        elseif second_argument isa Float64
+            #if second_argument is a Float64, we assume it's the proportion of data to use for the optimization function
+            t_upper_bound = second_argument * max_t_gt
+            ensemble_prob = remake(ensemble_prob, tspan = (0.0, t_upper_bound))
+            measurements_batch = measurements[measurements.time .<= t_upper_bound, :] # Filter measurements to only include those within the time bounds
+        else
+            @error "No option for second argument"
+        end
+        # println("Proportion of data used for optimization: $(second_argument) with length $(size(measurements_batch, 1)) measurements.")
         sim = solve(ensemble_prob, alg, ens_alg, trajectories = length(u0_conditions), 
-                    saveat = unique(measurements_batch.time), 
+                    saveat = unique_times, 
                     sensealg = sensealg,
+                    force_dtmin = force_dtmin,
                     kwargs...
-                    )
-        if prod([SciMLBase.successful_retcode(trajectory) for trajectory in sim]) != 1
+                    ) #simulate data
+
+                    if prod([SciMLBase.successful_retcode(trajectory) for trajectory in sim]) != 1
             @warn "Some simulations did not converge. Returning a high loss value."
             return Inf # Return a high loss value if any simulation did not converge
         end
         idx_time = Dict(time => i for (i, time) in enumerate(sim[1].t))
         obs_val_dict = [observable_dict(sim[i], p, model, obs_funs) for i in 1:length(u0_conditions)]
         loss = 0.0 
-        n = 0
-
+        n = size(measurements_batch, 1) # Number of measurements
         # some algorithms don't support DataLoaders, so we access dataframe directly
 
         for i in 1:size(measurements_batch, 1)
             entry = measurements_batch[i, :]
-            # if assume_stable_data && idx_time[entry.time] > length(sim[idx_sim[entry.simulation_id]].t)
-            #     continue # Skip this entry if the time is greater than the maximum time in the simulation
-            # end
-            #make sure the simulation has the same time as the measurement
             @assert isapprox(sim[idx_sim[entry.simulation_id]].t[idx_time[entry.time]], entry.time, atol = 0.1) "The time in the measurement $(entry.time) does not match the simulation time $(sim[idx_sim[entry.simulation_id]].t[idx_time[entry.time]])"
             meas_value = entry.measurement
             sim_value = obs_val_dict[idx_sim[entry.simulation_id]][obs[entry.obs_id]][idx_time[entry.time]]
-            # sim[idx_var[obs[entry.obs_id]],idx_time[i],idx_sim[entry.simulation_id]]
             loss += (sim_value - meas_value)^2
-            n+= 1
+            n += 1
         end
-        
+        loss /= n
+
         # Add Lasso and Ridge penalties if specified (Only if the surrogate model is not a NullModel)
         if alpha > 0.0
             loss += alpha * l1_ratio * sum(abs, p.surrogate)  + # Lasso penalty
                     alpha * (1 - l1_ratio) * sum(x -> x^2, p.surrogate) # Ridge penalty
         end
 
-        return loss/n # Return the average loss
+        return loss
     end
     return deepcopy(loss_function)
 end
@@ -476,6 +494,8 @@ end
 function create_callback(peprob::HybridPEProblem;  plot_every = 30, report_every = 10, loss_upper_bound = 1e7,
                        xlabel = "Time", ylabel = "Population", title = "Lotka-Volterra", kwargs...)
     label = hcat(string.(unknowns(peprob.model.sys))...)
+    data = peprob.measurements.measurement
+    timedata = peprob.measurements.time
     function callback(state, l;) #callback function to observe training
         sim = simulate_solution(peprob, state.u)
         if l > loss_upper_bound
@@ -494,7 +514,7 @@ function create_callback(peprob::HybridPEProblem;  plot_every = 30, report_every
         if plot_every > 0
             if state.iter % plot_every == 0
                 p1 = plot(sim, label = label.*"_fit", linewidth=2, markersize=4, legend =:topright)
-                scatter!(p1, timedata[sample_idcs], data[sample_idcs, :], label=label.*"_data", legend =:topright, xlabel = xlabel, ylabel = ylabel, title = title, kwargs...)
+                scatter!(p1,timedata, data, label=label.*"_data", legend =:topright, xlabel = xlabel, ylabel = ylabel, title = title, kwargs...)
                 display(p1)
             end
         end
@@ -517,9 +537,12 @@ end
 
 function observable_dict(odesol, p, model::HybridModel, obs_funs::Dict)
     simvals = Array(odesol)
-    obs_dict = Dict{ModelingToolkit.BasicSymbolic, Vector}()
+    obs_dict = Dict{Union{ModelingToolkit.BasicSymbolic, SymbolicUtils.BasicSymbolic}, Vector}()
     for (i,sym) in enumerate(unknowns(model.sys))
         obs_dict[sym] = simvals[i, :]
+    end
+    for obs in observables(hmodel.sys)
+        obs_dict[obs] = simvals[obs]
     end
     for (obs_sym, obs_fun) in obs_funs
         obs_dict[obs_sym] = [obs_fun(vals, p.sys) for vals in eachcol(simvals)]
@@ -528,24 +551,35 @@ function observable_dict(odesol, p, model::HybridModel, obs_funs::Dict)
 end
 
 import Optimization: OptimizationProblem, OptimizationFunction
-function Optimization.OptimizationFunction(problem::HybridPEProblem; adalg = Optimization.AutoForwardDiff(),
+function Optimization.OptimizationFunction(problem::HybridPEProblem; adalg = Optimization.AutoForwardDiff(), use_batches = true,
                                                     kwargs...)
-    loss_func = define_loss_function(problem.model, problem.observations, problem.measurements, problem.u0map; 
-                        conditions = problem.conditions, tspan = problem.tspan, kwargs...)
+    # loss_func = define_loss_function(problem.model, problem.observations, problem.measurements, problem.u0map; 
+                        # conditions = problem.conditions, tspan = problem.tspan, kwargs...)
     # Create the optimization function
     #create function that ignores second input
     # f = (p, data) -> loss_func(p, data)
-    f = (p, _) -> loss_func(p) # Ignore the data input, as we are using the measurements directly in the loss function
+    f = (params, extra) -> problem.obj_func(params, extra)
     opt_func = Optimization.OptimizationFunction(f, adalg)
     return opt_func
 end
 
 function Optimization.OptimizationProblem(problem::HybridPEProblem, p = init_params(problem.model);shuffle = false,
+                                                    proportion_of_data = 1.0,
                                                     kwargs...)
     # Create the optimization problem
-    # dataloader = MLUtils.DataLoader(problem.measurements, batchsize = problem.batch_size, shuffle = shuffle)
-    opt_func = Optimization.OptimizationFunction(problem; kwargs...)
-    return OptimizationProblem(opt_func, p; lb = problem.lb, ub = problem.ub)
+
+    
+
+    batchsize = problem.batch_size < size(problem.measurements, 1) ? problem.batch_size : size(problem.measurements, 1)
+    if batchsize < size(problem.measurements, 1)
+        opt_func = Optimization.OptimizationFunction(problem; use_batches = true, kwargs...)
+        dataloader = MLUtils.DataLoader(problem.measurements, batchsize = batchsize, shuffle = shuffle)
+        return OptimizationProblem(opt_func, p, dataloader; lb = problem.lb, ub = problem.ub)
+    else
+        opt_func = Optimization.OptimizationFunction(problem; use_batches = false, kwargs...)
+        return OptimizationProblem(opt_func, p, proportion_of_data; lb = problem.lb, ub = problem.ub)
+    end
+    return
 end
 
 function Optimization.EnsembleProblem(problem::HybridPEProblem;

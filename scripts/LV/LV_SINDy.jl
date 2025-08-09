@@ -3,9 +3,9 @@ Pkg.activate("scripts//")
 include("../../src/polyopt.jl")
 include("LV_hidden_model.jl")
 include("../../src/hybrid_model.jl")
+include("LV_sampling.jl")
 using Optimisers
 using JLD2
-
 
 
 rootdir = dirname(dirname(dirname(@__FILE__)))
@@ -19,7 +19,7 @@ end
 species = unknowns(sys_known)
 unknown_basis = polynomial_basis(species, 2) # Create the unknown equations
 @parameters Ξ[1:length(known_eqs), 1:length(unknown_basis)]
-default_params = Dict([Ξ[i, j] => eps(Float64) for i in 1:length(known_eqs), j in 1:length(unknown_basis)])
+default_params = Dict([Ξ[i, j] => 0.0 for i in 1:length(known_eqs), j in 1:length(unknown_basis)])
 default_params[Ξ[1,5]] = - params[β]
 default_params[Ξ[2,5]] = params[δ] # Set the default parameters for the unknown equations
 
@@ -32,56 +32,106 @@ hmodel = HybridModel(sys_known, sys_SINDy; rng = rng)
 
 
 ### OPTIMIZATION
-
+n_initial_conditions = 1
+#CHANGE NUMBER OF INITIAL CONDITIONS HERE
+train_measurements_exp = train_measurements[sum([train_measurements.simulation_id .== "cond$i" for i in 1:n_initial_conditions]), :]
+test_measurements_exp = test_measurements[sum([test_measurements.simulation_id .== "cond$i" for i in 1:n_initial_conditions]), :]
 # batch_size = 32 # Batch size for the optimization
 obs = Dict("prey_o" => x, "predator_o" => y)
 u0map = Dict([x => 40.0, y => 9.0])
-initial_conditions = Dict(
-    "cond1" => Dict([x => 40.0, y => 9.0]), #remember to define variables before using them
-)
+ic_vals = Dict(["cond$i" => Dict([var => ic[j] for (j, var) in enumerate(unknowns(sys_known))]) for (i, ic) in enumerate(initial_conditions[1:1])])
 
 
-peprob = HybridPEProblem(hmodel, obs, train_measurements, u0map; 
-                   conditions = initial_conditions, force_dtmin = true)#, batch_size = batch_size,)
-valpeprob = HybridPEProblem(hmodel, obs, test_measurements, u0map; 
-                   conditions = initial_conditions, force_dtmin = true)
+###
+valpeprob = HybridPEProblem(hmodel, obs, test_measurements_exp, u0map; 
+                   conditions = ic_vals,
+                   ens_alg = EnsembleSplitThreads())
 
 
 
-n_runs = 1 # number of runs for the ensemble
-max_trials = 10
+# xmean = mean(train_measurements_exp[train_measurements_exp.obs_id .== "prey_o", :measurement])
+# ymean = mean(train_measurements_exp[train_measurements_exp.obs_id .== "predator_o", :measurement])
+# equilibrium_guess = Dict(x => Int(round(xmean)), y => Int(round(ymean)))
+
+n_runs = 20 # number of runs for the ensemble
+max_trials = 10 
+batch_size = 32 # Batch size for the optimization
 gt_p = init_params(hmodel)
 max_dist_from_gt = 0.5
 lb = gt_p .- max_dist_from_gt
 ub = gt_p .+ max_dist_from_gt
 initp_samples = init_params(hmodel, n = n_runs, lb = lb, ub = ub)
+# centered_manifold_updated_params!(hmodel, initp_samples, equilibrium_guess; digits = 4)
 
-# peprob.obj_func(gt_p, train_measurements)
-
-
-
-cb = create_callback(peprob; plot_every = 0, report_every = 0, loss_upper_bound = 1e7,
-                       xlabel = "Time", ylabel = "Population", title = "Lotka-Volterra SINDy")
-
+# peprob.obj_func(gt_p, train_measurements_exp)
 
 # Convert Dual numbers to Float64 by taking the value part
 
-options = Dict(:maxiters => 1000, :show_every => 1, :callback => cb, :trajectories => n_runs)
 
 alpha = 1.0
 l1_ratio = 0.5 # L1 regularization ratio
 
+peprob = HybridPEProblem(hmodel, obs, train_measurements_exp, u0map;
+                conditions = ic_vals, force_dtmin = true, alpha = 1.0,)#, 
+
+
+
+label = hcat(string.(unknowns(peprob.model.sys))...)
+data = peprob.measurements.measurement
+timedata = peprob.measurements.time
+loss_upper_bound = 1e7
+report_every = 10
+plot_every = 30
+function callback(state, l) #callback function to observe training
+    sim = simulate_solution(peprob, state.u)
+    if l > loss_upper_bound
+        println("Loss exceeded upper bound at iteration $(state.iter). Stopping optimization.")
+        return true # Stop the optimization if loss exceeds upper bound
+    end
+    if prod([SciMLBase.successful_retcode(trajectory) for trajectory in sim]) != 1
+        println("Simulation failed at iteration $(state.iter). Stopping optimization.")
+        return true # Stop the optimization if simulation fails
+    end
+    if report_every > 0
+        if state.iter % report_every == 0
+            println("Iteration: $(state.iter), Loss: $(l), Parameters: $(state.u) and proportion $(state.p)")
+        end
+    end
+    if plot_every > 0
+        if state.iter % plot_every == 0
+            p1 = plot(sim,  linewidth=2, markersize=4, legend =:topright) #label = label.*"_fit"
+            scatter!(p1,timedata, data, legend =:topright)#label=label.*"_data"
+            display(p1)
+        end
+    end
+    return false
+end
+plotsdir = joinpath(model_dir, "plots")
+
 opt_prob = Optimization.EnsembleProblem(peprob; initp_samples = initp_samples,
-                          alpha = alpha, l1_ratio = l1_ratio, adalg = Optimization.AutoForwardDiff())
-ensembleoptsol = Optimization.solve(opt_prob, PolyOptAdamBFGS(lr = 1e-4), EnsembleThreads(); options...)
-#save ensembleoptsol to file
-run_save_path = joinpath(model_dir, "ensembleoptsol_run_$(n_runs).jld2")
+                        adalg = Optimization.AutoForwardDiff(),
+                        )
+
+
+cb = create_callback(peprob; plot_every = 10, report_every = 10, loss_upper_bound = 1e-8)
+options = Dict(:maxiters => 2000, :show_every => 1, :callback => callback, :trajectories => n_runs)
+ens_prob_sol = simulate_solution(valpeprob, gt_p, saveat = collect(0:0.1:100.0))
+
+ensembleoptsol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = 1e-4, n_partitions = 10), EnsembleThreads(); options...)
+best_run = argmin([peprob.obj_func(sol.u, 1.0) for sol in ensembleoptsol])
+# ensembleoptsol = Optimization.solve(opt_prob, Optimisers.ADAM(1e-8), EnsembleDistributed(); options...)
+
+# peprob.obj_func(ensembleoptsol[best_run].u)
+# #save ensembleoptsol to file
+# run_save_path = joinpath(model_dir, "ensembleoptsol_run_$(n_runs).jld2")
 # @info "Saving ensemble optimization solution to $run_save_path"
 # save(run_save_path, "ensembleoptsol", ensembleoptsol)
 
-# sim = simulate_solution(peprob, initp_samples, saveat = collect(0:0.1:100.0))
+# ens_prob_sol = simulate_solution(valpeprob, ensembleoptsol[best_run].u, saveat = collect(0:0.1:100.0))
+# plot(ens_prob_sol)
+sim = simulate_solution(peprob, ensembleoptsol[best_run].u, saveat = collect(0:0.1:100.0))
 # scatter(timedata[sample_idcs], data[sample_idcs, :], label=["Prey_data" "Predator_data"], xlabel="Time", ylabel="Population", title="Lotka-Volterra SINDy", legend =:topright)
-# plot!(sim, label = ["Prey_model" "Predator_model"], linewidth=2, markersize=4, legend =:topright)
+plot(sim, label = ["Prey_model" "Predator_model"], linewidth=2, markersize=4, legend =:topright)
 
 
 using Dates
@@ -97,29 +147,40 @@ if !isdir(save_path_allruns)
 end
 
 using HyperTuning
-scenario = Scenario(lr_exponent = (-6.0..1.0),
-                    alpha_exponent = (-6.0..3.0),
+scenario = Scenario(lr_exponent = (-7.0..1.0),
+                    alpha_exponent = (-7.0..3.0),
                     l1_ratio = (0.0..1.0),
                     max_trials = max_trials,
                     sampler = GridSampler(),
 )
 
 
+peprob = HybridPEProblem(hmodel, obs, train_measurements_exp, u0map; 
+                conditions = ic_vals
+                )#, batch_size = batch_size,)# OPTIONS HERE ARE UNECESSARY
+cb = create_callback(peprob; plot_every = 0, report_every = 0, loss_upper_bound = 1e-7,)
+options = Dict(:maxiters => 2000, :show_every => 1, :callback => cb, :trajectories => n_runs)
 
-function hypertuning_objective(trial; id = [1])
+
+function hypertuning_objective(trial)
     @unpack lr_exponent, alpha_exponent, l1_ratio = trial
     alpha = 10.0 ^ alpha_exponent
     lr = 10.0 ^ lr_exponent
+    
+    peprob = HybridPEProblem(hmodel, obs, train_measurements_exp, u0map; 
+                   conditions = ic_vals, alpha = alpha, l1_ratio = l1_ratio,
+                   )#, batch_size = batch_size,)# OPTIONS HERE ARE UNECESSARY
+
     opt_prob = Optimization.EnsembleProblem(peprob; initp_samples = initp_samples,
-                          alpha = alpha, l1_ratio = l1_ratio, adalg = Optimization.AutoForwardDiff())
-    ensembleoptsol = Optimization.solve(opt_prob, PolyOptAdamBFGS(lr=lr), EnsembleThreads(), trajectories = n_runs; options...)
-    best_run = argmin([valpeprob.obj_func(sol.u) for sol in ensembleoptsol])
-    val_loss = valpeprob.obj_func(ensembleoptsol[best_run].u)    
+                            adalg = Optimization.AutoForwardDiff())
+    ensembleoptsol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = lr, n_partitions = 10), EnsembleThreads(); options...)
+
+    best_run = argmin([valpeprob.obj_func(sol.u, 1.0) for sol in ensembleoptsol])
+    val_loss = valpeprob.obj_func(ensembleoptsol[best_run].u, 1.0)    
     #save each run to a file
-    @info "Saving run to $run_save_path"
     trial_string = join(["$(hyperp)_$(round(val,sigdigits = 4))_" for (hyperp, val) in trial.values])
-    current_save_path = joinpath(save_path_allruns, "loss_$(round(val_loss, sigdigits = 3))_$(trial_string).jld2")
-    save(current_save_path, "ensembleoptsol", ensembleoptsol)
+    current_save_path = joinpath(save_path_allruns, "val_loss_$(round(val_loss, sigdigits = 3))_$(trial_string).jld2")
+    save(current_save_path, "ensembleoptsol", (initp = initp_samples[best_run], final_p = ensembleoptsol[best_run].u, val_loss = val_loss, train_loss = ensembleoptsol[best_run].objective))
     return val_loss
 end
 
@@ -133,21 +194,21 @@ hypertune_res = HyperTuning.optimize(hypertuning_objective, scenario)
 save(save_path_hyperparams, "hypertune_res", hypertune_res)
 
 #load hypertune_res
-loaded_hypertune_res = load(save_path_hyperparams, "hypertune_res")
+# ensemble_opt = load(current_save_path, "ensembleoptsol")
 
 
-#REDO BEST RUN WITH BEST PARAMETERS
-@unpack lr_exponent, alpha_exponent, l1_ratio = hypertune_res
-alpha_exponent = 1e-1
-lr_exponent = -3.0
-alpha = 10.0 ^ alpha_exponent
-lr = 10.0 ^ lr_exponent
-l1_ratio = 0.5
-opt_prob = Optimization.EnsembleProblem(peprob; initp_samples = initp_samples,
-                          alpha = alpha, l1_ratio = l1_ratio, adalg = Optimization.AutoForwardDiff())
-ensembleoptsol = Optimization.solve(opt_prob, PolyOptAdamBFGS(lr=lr), EnsembleThreads(), trajectories = n_runs; options...)
-#save ensembleoptsol to file
-#get date
+# # #REDO BEST RUN WITH BEST PARAMETERS
+# # @unpack lr_exponent, alpha_exponent, l1_ratio = hypertune_res
+# # alpha_exponent = 1e-1
+# # lr_exponent = -3.0
+# # alpha = 10.0 ^ alpha_exponent
+# # lr = 10.0 ^ lr_exponent
+# # l1_ratio = 0.5
+# # opt_prob = Optimization.EnsembleProblem(peprob; initp_samples = initp_samples,
+# #                           alpha = alpha, l1_ratio = l1_ratio, adalg = Optimization.AutoForwardDiff())
+# # ensembleoptsol = Optimization.solve(opt_prob, PolyOptAdamBFGS(lr=lr), EnsembleThreads(), trajectories = n_runs; options...)
+# # #save ensembleoptsol to file
+# # #get date
 
-@info "Saving ensemble optimization solution to $save_path and hyperparameter tuning results to $save_path_hyperparams"
-save(save_path, "ensembleoptsol", ensembleoptsol)
+# @info "Saving ensemble optimization solution to $save_path and hyperparameter tuning results to $save_path_hyperparams"
+# save(save_path, "ensembleoptsol", ensembleoptsol)

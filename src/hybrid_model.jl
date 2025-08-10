@@ -141,7 +141,7 @@ function DifferentialEquations.ODEFunction(sys::ODESystem, surrogate::T; rng = R
     du2 = copy(du1) # Initialize du2 for the surrogate model
     function update_du!(du, u, p, t)
         # Compute the ODE derivatives
-        ode_fun!(du1, u, p.sys, t) 
+        ode_fun!(du1, u, p.sys, t)
         # Compute the surrogate derivatives
         surrogate_fun!(du2, u, p.surrogate, t) 
         # Combine the derivatives
@@ -419,13 +419,15 @@ end
         p = init_params(peprob.model),
         data_proportion = peprob.model.data_proportion,
         colors = [:blue, :green, :orange, :purple, :magenta, :brown],
-        obs_ids = unique(peprob.measurements.obs_id),
-        cond_ids = sort(collect(keys(peprob.conditions)))
+        obs_ids = keys(peprob.observations),
+        saveat = (peprob.tspan[2]-peprob.tspan[1]) / 200, # Default saveat is 200 points over the tspan
+        cond_ids = sort(collect(keys(peprob.conditions))),
+        opacity = 0.33,
         )
 
     t_cutoff = data_proportion * peprob.tspan[2] # Cutoff time for the data proportion
     if :model in included_plots
-        sim = simulate_solution(peprob, p)
+        sim = simulate_solution(peprob, p; saveat = saveat)
     end
 
     idx_sim = Dict([cond => i for (i, cond) in enumerate(cond_ids)]) #create a map from condition name to ensemble index
@@ -439,16 +441,29 @@ end
                     meas = peprob.measurements[peprob.measurements.obs_id .== obs_id .&& 
                                                 peprob.measurements.simulation_id .== cond_id, :]
                     if !isempty(meas)
+
+                        x = meas.time
+                        y = meas.measurement
+                        x_normal = x[x .<= t_cutoff] # Filter x values to only include those within the cutoff time
+                        y_normal = y[x .<= t_cutoff] # Filter y values to only include those within the cutoff time
                         @series begin
-                            x = meas.time
-                            y = meas.measurement
                             label --> "$cond_id - $obs_id"
                             color --> color
                             seriestype --> :scatter
-                            x,y
+                            x_normal, y_normal
+                        end
+                        if data_proportion < 1.0
+                            x_opaque = x[x .> t_cutoff]
+                            y_opaque = y[x .> t_cutoff]
+                            @series begin
+                                label --> ""
+                                color --> color
+                                seriestype --> :scatter
+                                alpha --> opacity # Make the points semi-transparent
+                                x_opaque, y_opaque
+                            end
                         end
                     end
-
                     if :model in included_plots
                         x = sim[idx_sim[cond_id]].t
                         y = sim[idx_sim[cond_id]][peprob.observations[obs_id]]
@@ -464,10 +479,10 @@ end
                             x_opaque = x[x .> t_cutoff]
                             y_opaque = y[x .> t_cutoff]
                             @series begin
-                                # label --> "$cond_id - $(obs_id)_fit_opaque"
+                                label --> ""
                                 color --> color
                                 seriestype --> :line
-                                alpha --> 0.5 # Make the line semi-transparent
+                                alpha --> opacity # Make the line semi-transparent
                                 x_opaque, y_opaque
                             end
                         end
@@ -595,7 +610,7 @@ end
 
 
 function create_callback(peprob::HybridPEProblem;  plot_every = 30, report_every = 10, loss_upper_bound = 1e7,
-                        save_trace = false,
+                        save_trace = false, dt = 0.05,
                        xlabel = "Time", ylabel = "Population", title = "Lotka-Volterra", kwargs...)
     label = hcat(string.(unknowns(peprob.model.sys))...)
     data = peprob.measurements.measurement
@@ -622,14 +637,18 @@ function create_callback(peprob::HybridPEProblem;  plot_every = 30, report_every
         end
         if plot_every > 0
             if state.iter % plot_every == 0
-                p1 = plot(sim, label = label.*"_fit", linewidth=2, markersize=4, legend =:topright)
-                scatter!(p1,timedata, data, label=label.*"_data", legend =:topright, xlabel = xlabel, ylabel = ylabel, title = title, kwargs...)
-                display(p1)
+            ps = peprob.log_transform ? exp.(state.u) : state.u # Exponentiate the parameters if log transformation is enabled
+            p1 = plot(peprob; included_plots = [:data, :model],
+                saveat = dt,
+                data_proportion = peprob.model.data_proportion,
+                obs_ids = keys(peprob.observations),
+                p = ps)
+            display(p1)
             end
         end
         return false
     end
-    return callback, saved_states
+    return deepcopy(callback), deepcopy(saved_states)
 end
 
 function overwrite_conditions!(u0map, conditions)

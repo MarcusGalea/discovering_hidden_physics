@@ -37,7 +37,7 @@ mutable struct HybridModel
     """ The surrogate model, which can be a normal ODESystem, SINDy model, or a Lux neural network."""
     surrogate::Union{ModelingToolkit.AbstractTimeDependentSystem, Lux.Chain, PEtab.MLModel}
     """ Discrete events that trigger during the simulation."""
-    events::Vector
+    events::Dict
     """ Observables that are computed during the simulation. (Defaults to unknowns of sys)"""
     observables::Vector
     """ Random number generator for reproducibility."""
@@ -46,17 +46,20 @@ mutable struct HybridModel
     ode_fun::Function
     """Machine learning model for the HybridModel system."""
     ml_models::Dict
-    
+    """Proportion of data used for modeling (Not smart to have here)"""
+    data_proportion::Float64
+
     """ Construct a HybridModel system with a SINDy/ODE surrogate model. """
     HybridModel(sys::ODESystem, surrogate::T;
-                events::Vector = [], 
+                events::Dict = Dict(), 
                 observables::Vector = has_observed(sys) || has_observed(surrogate) ?  union([observables(sys);observables(surrogate)]) : unknowns(sys), #choose observables from sys or surrogate if they have them. else use state variables
                 rng::Random.AbstractRNG = Random.default_rng(1234),
                 ode_fun::Function = ODEFunction(sys, surrogate; rng = rng),
                 ml_models::Dict = Dict(),
+                data_proportion::Float64 = 1.0
                 ) where 
                 T <: ModelingToolkit.AbstractTimeDependentSystem = 
-        new(sys, surrogate, events, observables, rng, ode_fun, ml_models)
+        new(sys, surrogate, events, observables, rng, ode_fun, ml_models, data_proportion)
 
 
     """   Construct a HybridModel system with a Lux neural network surrogate model."""
@@ -66,9 +69,10 @@ mutable struct HybridModel
                rng::Random.AbstractRNG = Random.default_rng(1234),
                ode_fun::Function = ODEFunction(sys, surrogate; rng = rng),
                ml_models::Dict = Dict(:surrogate => surrogate),
+               data_proportion::Float64 = 1.0
                ) where 
                T <: Lux.Chain =    
-        new(sys, surrogate, events, observables, rng, ode_fun, ml_models)
+        new(sys, surrogate, events, observables, rng, ode_fun, ml_models, data_proportion)
 
     """ Construct a HybridModel system with a PEtab MLModel surrogate model."""
     HybridModel(sys::ODESystem, surrogate::T; 
@@ -77,9 +81,10 @@ mutable struct HybridModel
                rng::Random.AbstractRNG = Random.default_rng(1234),
                ode_fun::Function = ODEFunction(sys, surrogate; rng = rng),
                ml_models::Dict = Dict(:surrogate => surrogate),
+               data_proportion::Float64 = 1.0
                ) where 
                {T <: PEtab.MLModel} =    
-        new(sys, surrogate, events, observables, rng, ode_fun, ml_models)
+        new(sys, surrogate, events, observables, rng, ode_fun, ml_models, data_proportion)
 end
 
 # Convert a dictionary to a NamedTuple (for use with ComponentArrays with ModelingToolkit)
@@ -114,9 +119,12 @@ function init_params(model::HybridModel;
     combined_ps = merge((;sys = ode_ps), (;surrogate = surrogate_ps))
     return ComponentVector{Float64}(combined_ps)
 end
+
 function DifferentialEquations.ODEFunction(model::HybridModel)
-        @unpack sys, surrogate, rng = model
-        return DifferentialEquations.ODEFunction(sys, surrogate; rng = rng)
+        # @unpack sys, surrogate, rng = model
+        @unpack ode_fun = model
+        # return DifferentialEquations.ODEFunction(sys, surrogate; rng = rng)
+        return ode_fun
 end
 
 #create the ODE function for the HybridModel system
@@ -126,20 +134,26 @@ function DifferentialEquations.ODEFunction(sys::ODESystem, surrogate::T; rng = R
     # Get the surrogate derivative function
     surrogate_fun! = derivative_function!(surrogate; rng = rng)
 
-    du1 = arr = Any[0.0 for _ in 1:length(unknowns(sys))]
+    if surrogate isa ModelingToolkit.AbstractTimeDependentSystem
+        @assert isequal(unknowns(surrogate), unknowns(sys)) "Surrogate model variables are not in the same order as the known system."
+    end
+    du1 = Any[0.0 for _ in 1:length(unknowns(sys))]
     du2 = copy(du1) # Initialize du2 for the surrogate model
     function update_du!(du, u, p, t)
         # Compute the ODE derivatives
         ode_fun!(du1, u, p.sys, t) 
         # Compute the surrogate derivatives
         surrogate_fun!(du2, u, p.surrogate, t) 
-        # Combine the derivatives   
-        du.= du1 .+ du2
-        return du  
+        # Combine the derivatives
+        du .= du1 .+ du2
+        return du
     end
     odefun! = remake(ode_fun!, f = update_du!) # Create a new ODEFunction with the combined derivatives
     return odefun!
 end
+
+findperm(a, b) = [findfirst(x -> isequal(x, y), b) for y in a]
+
 function DifferentialEquations.ODEProblem(model::HybridModel, u0::Union{Vector, ComponentArray}, tspan, p = init_params(model))
     # @unpack ode_fun = model
     ode_fun = DifferentialEquations.ODEFunction(model)
@@ -197,7 +211,7 @@ end
 function solve(model::HybridModel, u0s, time, p = init_params(model); alg = Tsit5, tspan = (time[1], time[end]), kwargs...)
     prob = EnsembleProblem(model, u0s, tspan, p)
     # if prob isa EnsembleProblem
-    return solve(prob, alg(), EnsembleDistributed(), trajectories = length(u0s), saveat = time, kwargs...)
+    return solve(prob, alg(), EnsembleDistributed(), trajectories = length(u0s), saveat = time; model.events..., kwargs...)
     # elseif prob isa ODEProblem
     #     return solve(prob, alg(), saveat = time, kwargs...)
     # end
@@ -372,19 +386,95 @@ mutable struct HybridPEProblem
     lb
     """ Batch size for the data loader. This is used to create a DataLoader for the measurements."""
     batch_size::Int
+    """log transform parameters before optimization"""
+    log_transform::Bool
 
-    #create constructor for HybridModelPE
+    """ Create a HybridPEProblem for the HybridModel."""
     HybridPEProblem(model::HybridModel, observables::Dict, measurements::DataFrame, u0map; 
                   conditions::Dict = Dict("cond1" => u0map), 
                   tspan::Tuple = (0.0, maximum(measurements.time)),
                   ub = nothing,
                   lb = nothing,
                   batch_size = size(measurements, 1),
+                  log_transform::Bool = false,
                   kwargs...
-                    ) = new(model, u0map, measurements, conditions, observables, tspan,
+                    ) = new(model, u0map, measurements, 
+                    conditions_in_data(conditions, measurements), 
+                    observables, tspan,
                     define_loss_function(model, observables, measurements, u0map; 
-                                         conditions = conditions, tspan = tspan, kwargs...),
-                    ub, lb, batch_size)
+                                         conditions = conditions_in_data(conditions, measurements), 
+                                         log_transform = log_transform,
+                                         tspan = tspan, kwargs...),
+                    ub, lb, batch_size, log_transform)
+end
+
+function conditions_in_data(conditions::Dict, measurements::DataFrame)
+    #remove conditions that don't exist in the measurements
+    ids = unique(measurements.simulation_id)
+    return Dict(k => v for (k, v) in conditions if k in ids)
+end
+
+""" Plotting Recipe """
+@recipe function f(peprob::HybridPEProblem; included_plots = [:data, :model],
+        p = init_params(peprob.model),
+        data_proportion = peprob.model.data_proportion,
+        colors = [:blue, :green, :orange, :purple, :magenta, :brown],
+        obs_ids = unique(peprob.measurements.obs_id),
+        cond_ids = sort(collect(keys(peprob.conditions)))
+        )
+
+    t_cutoff = data_proportion * peprob.tspan[2] # Cutoff time for the data proportion
+    if :model in included_plots
+        sim = simulate_solution(peprob, p)
+    end
+
+    idx_sim = Dict([cond => i for (i, cond) in enumerate(cond_ids)]) #create a map from condition name to ensemble index
+
+        for (i, cond_id) in enumerate(cond_ids)
+            for (j, obs_id) in enumerate(obs_ids)
+                # Filter measurements for the current condition and observation ID
+                color = colors[mod1(i + (j-1)*length(obs_ids), length(colors))]
+
+                if :data in included_plots
+                    meas = peprob.measurements[peprob.measurements.obs_id .== obs_id .&& 
+                                                peprob.measurements.simulation_id .== cond_id, :]
+                    if !isempty(meas)
+                        @series begin
+                            x = meas.time
+                            y = meas.measurement
+                            label --> "$cond_id - $obs_id"
+                            color --> color
+                            seriestype --> :scatter
+                            x,y
+                        end
+                    end
+
+                    if :model in included_plots
+                        x = sim[idx_sim[cond_id]].t
+                        y = sim[idx_sim[cond_id]][peprob.observations[obs_id]]
+                        x_normal = x[x .<= t_cutoff] # Filter x values to only include those within the cutoff time
+                        y_normal = y[x .<= t_cutoff] # Filter y values to only include those within the cutoff time
+                        @series begin
+                            label --> "$cond_id - $(obs_id)_fit"
+                            color --> color
+                            seriestype --> :line
+                            x_normal, y_normal
+                        end
+                        if data_proportion < 1.0
+                            x_opaque = x[x .> t_cutoff]
+                            y_opaque = y[x .> t_cutoff]
+                            @series begin
+                                # label --> "$cond_id - $(obs_id)_fit_opaque"
+                                color --> color
+                                seriestype --> :line
+                                alpha --> 0.5 # Make the line semi-transparent
+                                x_opaque, y_opaque
+                            end
+                        end
+                    end
+                end
+            end
+        end
 end
 
 function simulate_solution(prob::HybridPEProblem, p;
@@ -401,7 +491,7 @@ function simulate_solution(prob::HybridPEProblem, p;
     # Create an EnsembleProblem with the initial conditions and parameters
     ens_prob = DifferentialEquations.EnsembleProblem(prob.model, u0_conditions, tspan, p)
     # Solve the EnsembleProblem
-    sim = solve(ens_prob, alg, ens_alg, trajectories = length(u0_conditions), saveat = saveat, kwargs...)
+    sim = solve(ens_prob, alg, ens_alg, trajectories = length(u0_conditions); prob.model.events..., saveat = saveat, kwargs...)
 end
 
 function ModelingToolkit.unknowns(model::HybridModel)
@@ -419,13 +509,15 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
                               l1_ratio= 0.0,
                               assume_stable_data = true,
                               unsolved_penalty = 1e+16, # penalty for unsolved simulations,
+                              log_transform = false,
                               sensealg = ForwardDiffSensitivity(),
                               force_dtmin = true,
+                              random_sampling_percentage = 1.0,
                               kwargs...
                               )
     # Define
     u0_conditions = overwrite_conditions!(u0map, conditions)
-    obs_funs = Dict([obs_fun.lhs =>eval(build_function(obs_fun.rhs, unknowns(model.sys); ps = parameters(model.sys), expression=Val{false})) for obs_fun in observed(model.sys)])
+    obs_funs = Dict([obs_fun.lhs =>eval(build_function(obs_fun.rhs, unknowns(hmodel.sys), parameters(hmodel.sys); expression=Val{false})) for obs_fun in observed(hmodel.sys)])
     
     idx_sim = Dict([cond => i for (i, cond) in enumerate(sort(collect(keys(u0_conditions))))]) #create a map from condition name to ensemble index
     idx_var = Dict([var => i for (i, var) in enumerate(unknowns(model.sys))]) #create a map from variable name to index
@@ -434,6 +526,9 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
     unique_times = unique(measurements.time)
 
     function loss_function(p, second_argument)
+        if log_transform
+            p = exp.(p) # Exponentiate the parameters if log transformation is enabled
+        end
         ensemble_prob = remake(ensemble_prob, p = p) #SUPER SMART!! This allows us to change the parameters of the ensemble problem without creating a new one
         t_upper_bound = max_t_gt
         if isnothing(second_argument)
@@ -447,20 +542,28 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
             t_upper_bound = second_argument * max_t_gt
             ensemble_prob = remake(ensemble_prob, tspan = (0.0, t_upper_bound))
             measurements_batch = measurements[measurements.time .<= t_upper_bound, :] # Filter measurements to only include those within the time bounds
+            model.data_proportion = second_argument # Update the data proportion in the model
         else
             @error "No option for second argument"
         end
         # println("Proportion of data used for optimization: $(second_argument) with length $(size(measurements_batch, 1)) measurements.")
-        sim = solve(ensemble_prob, alg, ens_alg, trajectories = length(u0_conditions), 
+        sim = solve(ensemble_prob, alg, ens_alg, trajectories = length(u0_conditions); 
                     saveat = unique_times, 
                     sensealg = sensealg,
                     force_dtmin = force_dtmin,
+                    model.events...,
                     kwargs...
                     ) #simulate data
 
                     if prod([SciMLBase.successful_retcode(trajectory) for trajectory in sim]) != 1
             @warn "Some simulations did not converge. Returning a high loss value."
             return Inf # Return a high loss value if any simulation did not converge
+        end
+        if random_sampling_percentage < 1.0
+            # Randomly sample a percentage of the measurements
+            n_samples = Int(floor(random_sampling_percentage * size(measurements_batch, 1)))
+            rand_indices = randperm(size(measurements_batch, 1))[1:n_samples]
+            measurements_batch = measurements_batch[rand_indices, :]
         end
         idx_time = Dict(time => i for (i, time) in enumerate(sim[1].t))
         obs_val_dict = [observable_dict(sim[i], p, model, obs_funs) for i in 1:length(u0_conditions)]
@@ -492,12 +595,18 @@ end
 
 
 function create_callback(peprob::HybridPEProblem;  plot_every = 30, report_every = 10, loss_upper_bound = 1e7,
+                        save_trace = false,
                        xlabel = "Time", ylabel = "Population", title = "Lotka-Volterra", kwargs...)
     label = hcat(string.(unknowns(peprob.model.sys))...)
     data = peprob.measurements.measurement
+    saved_states = Array{Optimization.OptimizationState}(undef, 0)
     timedata = peprob.measurements.time
     function callback(state, l;) #callback function to observe training
         sim = simulate_solution(peprob, state.u)
+
+        if save_trace
+            push!(saved_states, state)
+        end
         if l > loss_upper_bound
             println("Loss exceeded upper bound at iteration $(state.iter). Stopping optimization.")
             return true # Stop the optimization if loss exceeds upper bound
@@ -508,7 +617,7 @@ function create_callback(peprob::HybridPEProblem;  plot_every = 30, report_every
         end
         if report_every > 0
             if state.iter % report_every == 0
-                println("Iteration: $(state.iter), Loss: $(l), Parameters: $(state.u)")
+                println("Iteration: $(state.iter), Loss: $(l), sample_percentage$(state.p),Parameters: $(state.u)")
             end
         end
         if plot_every > 0
@@ -520,7 +629,7 @@ function create_callback(peprob::HybridPEProblem;  plot_every = 30, report_every
         end
         return false
     end
-    return callback
+    return callback, saved_states
 end
 
 function overwrite_conditions!(u0map, conditions)
@@ -541,9 +650,9 @@ function observable_dict(odesol, p, model::HybridModel, obs_funs::Dict)
     for (i,sym) in enumerate(unknowns(model.sys))
         obs_dict[sym] = simvals[i, :]
     end
-    for obs in observables(hmodel.sys)
-        obs_dict[obs] = simvals[obs]
-    end
+    # for obs in observables(hmodel.sys)
+    #     obs_dict[obs] = simvals[obs]
+    # end
     for (obs_sym, obs_fun) in obs_funs
         obs_dict[obs_sym] = [obs_fun(vals, p.sys) for vals in eachcol(simvals)]
     end
@@ -567,9 +676,10 @@ function Optimization.OptimizationProblem(problem::HybridPEProblem, p = init_par
                                                     proportion_of_data = 1.0,
                                                     kwargs...)
     # Create the optimization problem
-
-    
-
+    if problem.log_transform
+        @warn "Log transforming parameters"
+        p = log.(p) # Log transform the parameters if specified
+    end
     batchsize = problem.batch_size < size(problem.measurements, 1) ? problem.batch_size : size(problem.measurements, 1)
     if batchsize < size(problem.measurements, 1)
         opt_func = Optimization.OptimizationFunction(problem; use_batches = true, kwargs...)

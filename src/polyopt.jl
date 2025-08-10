@@ -74,12 +74,12 @@ function SciMLBase.__solve(prob::OptimizationProblem,
         maxiters = nothing,
         maxiter_BFGS = nothing,
         kwargs...)
-    loss, θ = x -> prob.f(x, prob.p), prob.u0
-    deterministic = first(loss(θ)) == first(loss(θ))
+    # loss, θ = x -> prob.f(x, prob.p), prob.u0
+    # deterministic = first(loss(θ)) == first(loss(θ))
 
-    if (!isempty(args) || !deterministic) && maxiters === nothing
-        error("Automatic optimizer determination requires deterministic loss functions (and no data) or maxiters must be specified.")
-    end
+    # if (!isempty(args) || !deterministic) && maxiters === nothing
+    #     error("Automatic optimizer determination requires deterministic loss functions (and no data) or maxiters must be specified.")
+    # end
     maxiters = maxiters === nothing ? 300 : maxiters
 
     iters_per_partition = Int(round(maxiters / opt.n_partitions))
@@ -92,13 +92,14 @@ function SciMLBase.__solve(prob::OptimizationProblem,
             kwargs...)
         optprob1 = remake(optprob1, p = proportion_per_run * i, u0 = res1.u)
     end
-    maxiter_BFGS = maxiter_BFGS === nothing ? maxiters : maxiter_BFGS
+    maxiter_BFGS = maxiter_BFGS === nothing ? iters_per_partition : maxiter_BFGS
     try
         res1 = Optimization.solve(optprob1, BFGS(initial_stepnorm = opt.initial_stepnorm), args...;
                             maxiters = maxiter_BFGS, kwargs...)
     catch e
-        @warn "BFGS failed to converge, returning last result from ADAM."
-        # res1 is already set from the last ADAM run
+        @warn "BFGS failed to converge, running Adam instead."
+        res1 = Optimization.solve(optprob1, Optimisers.ADAM(opt.lr,opt.beta,opt.epsilon), args...; maxiters = maxiter_BFGS,
+            kwargs...)
     end
     return res1
 end

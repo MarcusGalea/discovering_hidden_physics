@@ -11,9 +11,9 @@ rng = Random.default_rng(seed) #create a random number generator with the seed
 ### ENSEMBLE DATA ###
 
 initial_conditions  = [
-    [10.0, 1.0, 0.0],
-    [5.0, 1.0, 0.0],
-    [2.5, 1.0, 0.0], 
+    [10.0, 1.0, 0.0, 0.0],
+    [5.0, 1.0, 0.0, 0.0],
+    [2.5, 1.0, 0.0, 0.0],
 ]
 
 
@@ -21,10 +21,11 @@ diss_time = 5.0 # Time of the event
 
 rn = @reaction_network begin
     # @discrete_events 5.0 => [E ~ 0.0]
-    @parameters w_S w_ES
-    @observables v ~ w_S * S + w_ES * ES
+    @parameters w_S w_ES w_P
+    @observables v ~ w_S * S + w_ES * ES + w_P * P
     ka, E + S --> ES
     kd, ES --> E + S
+    kc, ES --> E + P
 end
 rn = complete(rn)
 
@@ -37,13 +38,16 @@ event = Dict(:callback => cb, :tstops => [diss_time]) # Define the event
 odesys = convert(ODESystem, rn)
 #Data setup
 dt = 0.1 # time step
-u0 = [10.0, 1.0, 0.0]
+u0 = [10.0, 1.0, 0.0, 0.0]
 tspan = (0.0, 10.0)
 p = Dict(:ka => 0.4, 
           :kd => 0.3, 
+          :kc => 0.05,
         #   :w_E => 0.0, 
-          :w_S => 1, 
-          :w_ES => 2) # rate constants
+          :w_S => 1.0, 
+          :w_ES => 2.0,
+          :w_P => 1.0
+          ) # rate constants
 time = collect(tspan[1]:dt:tspan[2]) # time vector
 prob = ODEProblem(rn, u0, tspan, p)
 # data = solve(prob, Tsit5(), saveat = time; event...)
@@ -71,15 +75,16 @@ sample_idcs = [1; sample_idcs]
 E_df = [DataFrame(simulation_id = "cond$(i)", obs_id = "E", time = timedata[sample_idcs], measurement = sim[i][sample_idcs][1,:].+noise.*randn(rng, sample_size),) for i in 1:length(initial_conditions)]
 S_df = [DataFrame(simulation_id = "cond$(i)", obs_id = "S", time = timedata[sample_idcs], measurement = sim[i][sample_idcs][2,:].+noise.*randn(rng, sample_size),) for i in 1:length(initial_conditions)]
 ES_df = [DataFrame(simulation_id = "cond$(i)", obs_id = "ES", time = timedata[sample_idcs], measurement = sim[i][sample_idcs][3,:].+noise.*randn(rng, sample_size),) for i in 1:length(initial_conditions)]
+P_df = [DataFrame(simulation_id = "cond$(i)", obs_id = "P", time = timedata[sample_idcs], measurement = sim[i][sample_idcs][4,:].+noise.*randn(rng, sample_size),) for i in 1:length(initial_conditions)]
 v_df = [DataFrame(simulation_id = "cond$(i)", obs_id = "v", time = timedata[sample_idcs], measurement = sim[i][:v][sample_idcs].+noise.*randn(rng, sample_size),) for i in 1:length(initial_conditions)]
-measurements = vcat(E_df..., S_df..., ES_df..., v_df...)
+measurements = vcat(E_df..., S_df..., ES_df..., P_df..., v_df...)
 
 #plot dataframe
-label = [x for x in 1:length(initial_conditions)]
-colors = [:blue, :green, :orange, :purple, :magenta, :brown]
-plot(sim, legend = :topright, color = hcat(colors...))
-scatter!(measurements.time, measurements.measurement, group = measurements.obs_id.*"_".* measurements.simulation_id, xlabel="Time", ylabel="Population", 
-        title="Lotka-Volterra Model with Sampled Data", legend =:topright, marker = [:circle :star5], color = hcat(colors...), markersize = 2)
+# label = [x for x in 1:length(initial_conditions)]
+# colors = [:blue, :green, :orange, :purple, :magenta, :brown]
+# plot(sim[3].t, sim[3][v], legend = :topright, color = hcat(colors...))
+# scatter!(measurements.time, measurements.measurement, group = measurements.obs_id.*"_".* measurements.simulation_id, xlabel="Time", ylabel="Population", 
+#         title="Lotka-Volterra Model with Sampled Data", legend =:topright, marker = [:circle :star5], color = hcat(colors...), markersize = 2)
 
 
 # split dataframe into train and test sets

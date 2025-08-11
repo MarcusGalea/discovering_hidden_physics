@@ -64,7 +64,7 @@ mutable struct HybridModel
 
     """   Construct a HybridModel system with a Lux neural network surrogate model."""
     HybridModel(sys::ODESystem, surrogate::T; 
-               events::Vector = [], 
+               events::Dict = Dict(), 
                observables::Vector = has_observed(sys) || has_observed(surrogate) ?  union([observables(sys);observables(surrogate)]) : unknowns(sys), #choose observables from sys or surrogate if they have them. else use state variables
                rng::Random.AbstractRNG = Random.default_rng(1234),
                ode_fun::Function = ODEFunction(sys, surrogate; rng = rng),
@@ -76,7 +76,7 @@ mutable struct HybridModel
 
     """ Construct a HybridModel system with a PEtab MLModel surrogate model."""
     HybridModel(sys::ODESystem, surrogate::T; 
-               events::Vector = [], 
+               events::Dict = Dict(), 
                observables::Vector = has_observed(sys) || has_observed(surrogate) ?  union([observables(sys);observables(surrogate)]) : unknowns(sys), #choose observables from sys or surrogate if they have them. else use state variables
                rng::Random.AbstractRNG = Random.default_rng(1234),
                ode_fun::Function = ODEFunction(sys, surrogate; rng = rng),
@@ -414,83 +414,6 @@ function conditions_in_data(conditions::Dict, measurements::DataFrame)
     return Dict(k => v for (k, v) in conditions if k in ids)
 end
 
-""" Plotting Recipe """
-@recipe function f(peprob::HybridPEProblem; included_plots = [:data, :model],
-        p = init_params(peprob.model),
-        data_proportion = peprob.model.data_proportion,
-        colors = [:blue, :green, :orange, :purple, :magenta, :brown],
-        obs_ids = keys(peprob.observations),
-        saveat = (peprob.tspan[2]-peprob.tspan[1]) / 200, # Default saveat is 200 points over the tspan
-        cond_ids = sort(collect(keys(peprob.conditions))),
-        opacity = 0.33,
-        )
-
-    t_cutoff = data_proportion * peprob.tspan[2] # Cutoff time for the data proportion
-    if :model in included_plots
-        sim = simulate_solution(peprob, p; saveat = saveat)
-    end
-
-    idx_sim = Dict([cond => i for (i, cond) in enumerate(cond_ids)]) #create a map from condition name to ensemble index
-
-        for (i, cond_id) in enumerate(cond_ids)
-            for (j, obs_id) in enumerate(obs_ids)
-                # Filter measurements for the current condition and observation ID
-                color = colors[mod1(i + (j-1)*length(obs_ids), length(colors))]
-
-                if :data in included_plots
-                    meas = peprob.measurements[peprob.measurements.obs_id .== obs_id .&& 
-                                                peprob.measurements.simulation_id .== cond_id, :]
-                    if !isempty(meas)
-
-                        x = meas.time
-                        y = meas.measurement
-                        x_normal = x[x .<= t_cutoff] # Filter x values to only include those within the cutoff time
-                        y_normal = y[x .<= t_cutoff] # Filter y values to only include those within the cutoff time
-                        @series begin
-                            label --> "$cond_id - $obs_id"
-                            color --> color
-                            seriestype --> :scatter
-                            x_normal, y_normal
-                        end
-                        if data_proportion < 1.0
-                            x_opaque = x[x .> t_cutoff]
-                            y_opaque = y[x .> t_cutoff]
-                            @series begin
-                                label --> ""
-                                color --> color
-                                seriestype --> :scatter
-                                alpha --> opacity # Make the points semi-transparent
-                                x_opaque, y_opaque
-                            end
-                        end
-                    end
-                    if :model in included_plots
-                        x = sim[idx_sim[cond_id]].t
-                        y = sim[idx_sim[cond_id]][peprob.observations[obs_id]]
-                        x_normal = x[x .<= t_cutoff] # Filter x values to only include those within the cutoff time
-                        y_normal = y[x .<= t_cutoff] # Filter y values to only include those within the cutoff time
-                        @series begin
-                            label --> "$cond_id - $(obs_id)_fit"
-                            color --> color
-                            seriestype --> :line
-                            x_normal, y_normal
-                        end
-                        if data_proportion < 1.0
-                            x_opaque = x[x .> t_cutoff]
-                            y_opaque = y[x .> t_cutoff]
-                            @series begin
-                                label --> ""
-                                color --> color
-                                seriestype --> :line
-                                alpha --> opacity # Make the line semi-transparent
-                                x_opaque, y_opaque
-                            end
-                        end
-                    end
-                end
-            end
-        end
-end
 
 function simulate_solution(prob::HybridPEProblem, p;
                             u0map = prob.u0map,
@@ -558,6 +481,7 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
             ensemble_prob = remake(ensemble_prob, tspan = (0.0, t_upper_bound))
             measurements_batch = measurements[measurements.time .<= t_upper_bound, :] # Filter measurements to only include those within the time bounds
             model.data_proportion = second_argument # Update the data proportion in the model
+            unique_times = unique(measurements_batch.time) # Update the unique times based on the filtered measurements
         else
             @error "No option for second argument"
         end
@@ -609,18 +533,15 @@ end
 
 
 
-function create_callback(peprob::HybridPEProblem;  plot_every = 30, report_every = 10, loss_upper_bound = 1e7,
-                        save_trace = false, dt = 0.05,
+function create_callback(peprob::HybridPEProblem;  plot_every = 30, report_every = 10, loss_upper_bound = 1e7, dt = 0.05,
                        xlabel = "Time", ylabel = "Population", title = "Lotka-Volterra", kwargs...)
     label = hcat(string.(unknowns(peprob.model.sys))...)
     data = peprob.measurements.measurement
-    saved_states = Array{Optimization.OptimizationState}(undef, 0)
     timedata = peprob.measurements.time
-    function callback(state, l;) #callback function to observe training
+    function callback(state, l; trace = nothing) #callback function to observe training
         sim = simulate_solution(peprob, state.u)
-
-        if save_trace
-            push!(saved_states, state)
+        if !isnothing(trace)
+            push!(trace, state)
         end
         if l > loss_upper_bound
             println("Loss exceeded upper bound at iteration $(state.iter). Stopping optimization.")
@@ -632,7 +553,7 @@ function create_callback(peprob::HybridPEProblem;  plot_every = 30, report_every
         end
         if report_every > 0
             if state.iter % report_every == 0
-                println("Iteration: $(state.iter), Loss: $(l), sample_percentage$(state.p),Parameters: $(state.u)")
+                println("Iteration: $(state.iter), Loss: $(l), sample_percentage$(peprob.model.data_proportion),Parameters: $(state.u)")
             end
         end
         if plot_every > 0
@@ -642,13 +563,17 @@ function create_callback(peprob::HybridPEProblem;  plot_every = 30, report_every
                 saveat = dt,
                 data_proportion = peprob.model.data_proportion,
                 obs_ids = keys(peprob.observations),
+                xlabel = xlabel,
+                ylabel = ylabel,
+                title = title,
+                kwargs...,
                 p = ps)
             display(p1)
             end
         end
         return false
     end
-    return deepcopy(callback), deepcopy(saved_states)
+    return deepcopy(callback)
 end
 
 function overwrite_conditions!(u0map, conditions)
@@ -700,7 +625,7 @@ function Optimization.OptimizationProblem(problem::HybridPEProblem, p = init_par
         p = log.(p) # Log transform the parameters if specified
     end
     batchsize = problem.batch_size < size(problem.measurements, 1) ? problem.batch_size : size(problem.measurements, 1)
-    if batchsize < size(problem.measurements, 1)
+    if batchsize < size(problem.measurements, 1) #Dataloader with batch_size is used if < size of measurements
         opt_func = Optimization.OptimizationFunction(problem; use_batches = true, kwargs...)
         dataloader = MLUtils.DataLoader(problem.measurements, batchsize = batchsize, shuffle = shuffle)
         return OptimizationProblem(opt_func, p, dataloader; lb = problem.lb, ub = problem.ub)
@@ -755,6 +680,8 @@ function polynomial_basis(x::Array, degree::Int = 1)
     eqs
 end
 
+
+
 species = unknowns(sys_known)
 unknown_basis = polynomial_basis(species, 2) 
 
@@ -780,4 +707,217 @@ function create_unknown_eqs(sys_known::AbstractTimeDependentSystem, unknown_basi
         unknown_eqs[i] = Equation(k_eq.lhs, sum(eq_basis_funs .* Ξ[i, :]))
     end 
     return unknown_eqs
+end
+
+function process_trace(trace; alg = ProgressivePolyOpt)
+    # Process the trace data
+    runs = [Dict{String, Vector{Any}}("ADAM_1" => [])]
+    if alg == ProgressivePolyOpt
+        # Apply specific processing for ProgressivePolyOpt
+        n_partitions = 1
+        @assert typeof(trace[1].original) <: Optimisers.Leaf #ADAM STATE OBJECT
+        alg_prev = "ADAM"
+        iter_prev = 0
+        for (i, state) in enumerate(trace)
+            run = runs[end]
+            if typeof(state.original) <: Optimisers.Leaf #ADAM current
+                if state.iter > iter_prev
+                    push!(run["ADAM_$n_partitions"], state)
+                else
+                    if alg_prev == "ADAM" #we're in the same run, but it's a new partition
+                        n_partitions += 1
+                        #add new key to existing dict
+                        run["ADAM_$n_partitions"] = [state]
+                    elseif alg_prev == "BFGS"#same run. Different algorithm
+                        push!(runs, Dict{String, Vector{Any}}("ADAM_1" => []))
+                        n_partitions = 1
+                    else
+                        error("Unknown algorithm: $(alg_prev)")
+                    end
+                end
+                alg_prev = "ADAM"
+            elseif typeof(state.original) <: Optim.OptimizationState #BFGS
+                if alg_prev == "ADAM" #We're in the same run, but different algorithm
+                    run["BFGS"] = [state]
+                elseif alg_prev == "BFGS"
+                    push!(run["BFGS"], state)
+                end
+            iter_prev = state.iter
+        end
+    end
+end
+return runs
+end
+
+function plot_loss(traces, train_prob; val_prob = nothing, kwargs...)
+    p1 = plot(; xlabel = "Iteration", ylabel = "Loss", title = "Loss Trace", kwargs...)
+    for (i, trace) in enumerate(traces)
+        iters = collect(1:length(trace))
+        ADAM_idcs = [typeof(state.original) <: Optimisers.Leaf for state in trace]
+        BFGS_idcs = .!ADAM_idcs
+        loss_trace = [train_prob.obj_func(state.u,1.0) for state in trace]
+        n_ADAM = sum(ADAM_idcs)
+        switch_points = findall([[trace[i].iter < trace[i-1].iter for i in 2:n_ADAM]; false])
+        n_switches = length(switch_points)
+        plot!(p1, iters[ADAM_idcs], loss_trace[ADAM_idcs], label = "Train Loss (ADAM)", color = :blue, linewidth = 2)
+        plot!(p1, iters[BFGS_idcs], loss_trace[BFGS_idcs], label = "Train Loss (BFGS)", color = :blue, linewidth = 2, linestyle = :dash)
+        if val_prob !== nothing
+            val_loss_trace = [val_prob.obj_func(state.u, 1.0) for state in trace]
+            plot!(p1, iters[ADAM_idcs], val_loss_trace[ADAM_idcs], label = "Val Loss (ADAM)", color = :red, linewidth = 2)
+            plot!(p1, iters[BFGS_idcs], val_loss_trace[BFGS_idcs], label = "Val Loss (BFGS)", color = :red, linewidth = 2, linestyle = :dash)
+        end
+        if !isempty(switch_points)
+            data_proportion = 1/(n_switches+1)
+            data_proportion_values = zeros(Float64, maximum(switch_points))
+            for (j, sp) in enumerate(switch_points)
+                data_proportion_values[end+1-sp:end] .+= data_proportion
+            end
+            vline!(p1, switch_points, label = "",  color = :black, linestyle = :dot, linewidth = 1.5, alpha = 0.5)
+            partial_loss = [train_prob.obj_func(trace[i].u, data_proportion_values[i]) for i in 1:length(data_proportion_values)]
+            plot!(p1, iters[1:length(partial_loss)], partial_loss, label = "Partial Train Loss", color = :green, linewidth = 2)
+
+        end
+    end
+    return p1
+end
+
+
+
+""" Plotting Recipe """
+@recipe function f(peprob::HybridPEProblem; included_plots = [:data, :model],
+        p = init_params(peprob.model),
+        data_proportion = peprob.model.data_proportion,
+        colors = [:blue, :green, :orange, :purple, :magenta, :brown],
+        curve_label = "fit",
+        obs_ids = keys(peprob.observations),
+        saveat = (peprob.tspan[2]-peprob.tspan[1]) / 200, # Default saveat is 200 points over the tspan
+        cond_ids = sort(collect(keys(peprob.conditions))),
+        opacity = 0.33,
+        )
+
+    t_cutoff = data_proportion * peprob.tspan[2] # Cutoff time for the data proportion
+    if :model in included_plots
+        sim = simulate_solution(peprob, p; saveat = saveat)
+    end
+
+    idx_sim = Dict([cond => i for (i, cond) in enumerate(cond_ids)]) #create a map from condition name to ensemble index
+
+        for (i, cond_id) in enumerate(cond_ids)
+            for (j, obs_id) in enumerate(obs_ids)
+                # Filter measurements for the current condition and observation ID
+                color = colors[mod1(i + (j-1)*length(obs_ids), length(colors))]
+
+                if :data in included_plots
+                    meas = peprob.measurements[peprob.measurements.obs_id .== obs_id .&& 
+                                                peprob.measurements.simulation_id .== cond_id, :]
+                    if !isempty(meas)
+
+                        x = meas.time
+                        y = meas.measurement
+                        x_normal = x[x .<= t_cutoff] # Filter x values to only include those within the cutoff time
+                        y_normal = y[x .<= t_cutoff] # Filter y values to only include those within the cutoff time
+                        @series begin
+                            label --> "$cond_id - $obs_id"
+                            color --> color
+                            seriestype --> :scatter
+                            x_normal, y_normal
+                        end
+                        if data_proportion < 1.0
+                            x_opaque = x[x .> t_cutoff]
+                            y_opaque = y[x .> t_cutoff]
+                            @series begin
+                                label --> ""
+                                color --> color
+                                seriestype --> :scatter
+                                alpha --> opacity # Make the points semi-transparent
+                                x_opaque, y_opaque
+                            end
+                        end
+                    end
+                    if :model in included_plots
+                        x = sim[idx_sim[cond_id]].t
+                        y = sim[idx_sim[cond_id]][peprob.observations[obs_id]]
+                        x_normal = x[x .<= t_cutoff] # Filter x values to only include those within the cutoff time
+                        y_normal = y[x .<= t_cutoff] # Filter y values to only include those within the cutoff time
+                        @series begin
+                            label --> "$cond_id - $(obs_id)_$curve_label"
+                            color --> color
+                            seriestype --> :line
+                            x_normal, y_normal
+                        end
+                        if data_proportion < 1.0
+                            x_opaque = x[x .> t_cutoff]
+                            y_opaque = y[x .> t_cutoff]
+                            @series begin
+                                label --> ""
+                                color --> color
+                                seriestype --> :line
+                                alpha --> opacity # Make the line semi-transparent
+                                x_opaque, y_opaque
+                            end
+                        end
+                    end
+                end
+            end
+        end
+end
+
+
+
+function plot_hidden_dynamics(peprob::HybridPEProblem;
+                            use_measurements = false,
+                            p_est = init_params(peprob.model),
+                            p_true = init_params(peprob.model),
+                            dt = (peprob.tspan[2] - peprob.tspan[1]) / 200,
+                            colors = [:blue, :green, :orange, :purple, :magenta, :brown],
+                            xlabel = "Time", ylabel = "Dynamics", title = "Hidden Dynamics of ODE System",
+                            seriestype = :line, color = :blue, linewidth = 2,
+                            kwargs...
+                            )
+    @unpack sys, surrogate,rng = peprob.model
+    p1 = plot(layout = (1,2);kwargs...)
+    ode_fun! = DifferentialEquations.ODEFunction(sys, unknowns(sys), parameters(sys))
+    # Get the surrogate derivative function
+    surrogate_fun! = derivative_function!(surrogate; rng = rng)
+    du_sys = zeros(length(unknowns(sys)))
+    du_surrogate = copy(du_sys)  
+    if use_measurements
+        all_vars = Set(unknowns(sys))
+        obs_vars = Set(peprob.observations)
+        if !issubset(obs_vars, all_vars)
+            @warn "Not all observation variables are in the system's unknowns."
+        end
+        #TODO
+    else
+        sim = simulate_solution(peprob, p_true, saveat = dt)
+        for (i, traj) in enumerate(sim)
+            dU_sys = zeros(length(unknowns(sys)), length(traj.t))
+            dU_surrogate = copy(dU_sys)
+            if !isnothing(p_true)
+                dU_sys_true = zeros(length(unknowns(sys)), length(traj.t))
+                dU_surrogate_true = copy(dU_sys_true)
+            end
+            for (i,tval) in enumerate(traj.t)
+                # Get the state at time tval
+                u = traj.u[i]
+                # Compute the surrogate dynamics
+                dU_surrogate[:,i] = surrogate_fun!(dU_surrogate[:,i], u, p_est.surrogate, tval)
+                # Compute the ODE dynamics
+                dU_sys[:,i] = ode_fun!(dU_sys[:,i], u, p_est.sys, tval)
+                if !isnothing(p_true)
+                    dU_surrogate_true[:,i] = surrogate_fun!(dU_surrogate_true[:,i], u, p_true.surrogate, tval)
+                    dU_sys_true[:,i] = ode_fun!(dU_sys_true[:,i], u, p_true.sys, tval)
+                end
+            end
+            plot!(p1, traj.t, dU_sys', label = "d".*hcat(string.(unknowns(sys))...).*"/dt_est_$i", subplot = 1, 
+                    color = hcat(colors...), legend = Symbol(:outer, :left), title = "Known System Dynamics", xlabel = xlabel, ylabel = ylabel)
+            plot!(p1, traj.t, dU_surrogate', label = "d".*hcat(string.(unknowns(sys))...).*"/dt_est_$i", subplot = 2, 
+                    color = hcat(colors...), legend = Symbol(:outer, :right), title = "Surrogate Dynamics", xlabel = xlabel, ylabel = ylabel)
+            if !isnothing(p_true)
+                plot!(p1, traj.t, dU_sys_true', label = "d".*hcat(string.(unknowns(sys))...).*"/dt_true_$i", subplot = 1, color = hcat(colors...), legend = Symbol(:outer, :left), xlabel = xlabel, ylabel = ylabel)
+                plot!(p1, traj.t, dU_surrogate_true', label = "d".*hcat(string.(unknowns(sys))...).*"/dt_true_$i", subplot = 2, color = hcat(colors...), legend = Symbol(:outer, :right), xlabel = xlabel, ylabel = ylabel)
+            end
+        end
+    end
+    return p1
 end

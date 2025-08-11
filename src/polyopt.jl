@@ -96,7 +96,7 @@ function SciMLBase.__solve(prob::OptimizationProblem,
     try
         res1 = Optimization.solve(optprob1, BFGS(initial_stepnorm = opt.initial_stepnorm), args...;
                             maxiters = maxiter_BFGS, kwargs...)
-    catch e
+    catch AssertionError
         @warn "BFGS failed to converge, running Adam instead."
         res1 = Optimization.solve(optprob1, Optimisers.ADAM(opt.lr,opt.beta,opt.epsilon), args...; maxiters = maxiter_BFGS,
             kwargs...)

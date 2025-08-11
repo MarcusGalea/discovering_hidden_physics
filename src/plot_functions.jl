@@ -7,6 +7,26 @@ end
 logmod(x) = sign(x) * log(abs(x) + 1)
 
 
+
+function param_trace(res, param_idx; ground_truth_value = nothing, run_idcs = collect(1:length(res.runs)),kwargs...)
+    p1 = plot(; kwargs...)
+    runs = res.runs[run_idcs]
+    colors = [:blue, :green, :orange, :purple, :cyan, :magenta, :yellow, :brown]
+    markers = [:v, :cross, :star, :triangle, :x]
+    if ground_truth !== nothing
+        hline!(p1, [ground_truth_value], label = "Ground Truth", color = :red, linestyle = :dash, linewidth = 6, alpha = 0.5)
+    end
+    for (i, run) in enumerate(runs)
+        p0 = run.x0
+        color = colors[i % length(colors) + 1]
+        marker = markers[i % length(markers) + 1]
+        param_trace = hcat(run.xtrace ...)[param_idx,:]
+        scatter!(p1, param_trace, label = "Run $(run_idcs[i])", markersize = 4, color = color, marker = marker, alpha = 0.8)
+        #plot the line connecting the points
+        plot!(p1, param_trace, label = "", linewidth = 1, markersize = 2, color = color, alpha = 0.8)
+    end
+    return p1
+end
 function param_trace(res, param_idx; ground_truth_value = nothing, run_idcs = collect(1:length(res.runs)),kwargs...)
     p1 = plot(; kwargs...)
     runs = res.runs[run_idcs]

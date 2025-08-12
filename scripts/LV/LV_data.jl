@@ -74,7 +74,7 @@ initial_conditions  = [
     [30.0, 8.0],
     [20.0, 7.0],
 ]
-
+n_initial_conditions = length(initial_conditions)
 function prob_func(prob, i, repeat)
     remake(prob, u0 = initial_conditions[i])
 end
@@ -83,7 +83,7 @@ plotdir = "plots/LV/"
 if !isdir(plotdir)
     mkpath(plotdir)
 end
-noise = 0.2
+noise = 0.4
 ensemble_prob = EnsembleProblem(prob, prob_func = prob_func)
 sim = solve(ensemble_prob, Tsit5(), EnsembleDistributed(), trajectories = length(initial_conditions), saveat = dt)
 prey_df = [DataFrame(simulation_id = "cond$(i)", obs_id = "prey_o", time = timedata[sample_idcs], measurement = sim[i][sample_idcs][1,:].+noise.*randn(rng, sample_size),) for i in 1:length(initial_conditions)]
@@ -96,12 +96,26 @@ plot(sim, legend = :topright, color = hcat(colors...))
 scatter!(measurements.time, measurements.measurement, group = measurements.obs_id.*"_".* measurements.simulation_id, xlabel="Time", ylabel="Population", 
         title="Lotka-Volterra Model with Sampled Data", legend =:topright, marker = [:circle :star5], color = hcat(colors...), markersize = 2)
 
-# split dataframe into train and test sets
-train_idcs = findall(measurements.time .<= test_time[end])
-test_idcs = findall(measurements.time .> test_time[end])
+# # split dataframe into train and test sets
+# train_idcs = findall(measurements.time .<= test_time[end])
+# test_idcs = findall(measurements.time .> test_time[end])
+# #save train and test data
+# train_measurements = measurements[train_idcs, :]
+# test_measurements = measurements[test_idcs, :]
+
+train_idcs = findall(measurements.simulation_id .!= "cond3")
+test_idcs = findall(measurements.simulation_id .== "cond3") 
 #save train and test data
 train_measurements = measurements[train_idcs, :]
 test_measurements = measurements[test_idcs, :]
+
+obs = Dict("prey_o" => x, "predator_o" => y)
+u0map = Dict([x => 40.0, y => 9.0])
+ic_vals = Dict(["cond$i" => Dict([var => ic[j] for (j, var) in enumerate(unknowns(sys))]) for (i, ic) in enumerate(initial_conditions[1:n_initial_conditions])])
+included_exp = (df) -> reduce(.|, [(df.simulation_id .== "cond$i") .& (df.obs_id .== obsvar)
+                               for i in 1:n_initial_conditions for obsvar in keys(obs)])
+train_measurements_exp = train_measurements[included_exp(train_measurements), :]
+test_measurements_exp = test_measurements[included_exp(test_measurements), :]
 
 # using FFTW
 # dfft_vals = abs.(fft(sim[1][1,:]))

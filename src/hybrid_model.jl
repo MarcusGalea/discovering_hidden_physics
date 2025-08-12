@@ -1,4 +1,4 @@
-using PEtab
+# using PEtab
 using DifferentialEquations
 using Lux
 using ModelingToolkit
@@ -35,7 +35,7 @@ mutable struct HybridModel
     """ The known underlying ODE system."""
     sys::ODESystem
     """ The surrogate model, which can be a normal ODESystem, SINDy model, or a Lux neural network."""
-    surrogate::Union{ModelingToolkit.AbstractTimeDependentSystem, Lux.Chain, PEtab.MLModel}
+    surrogate::Union{ModelingToolkit.AbstractTimeDependentSystem, Lux.Chain}#, PEtab.MLModel}
     """ Discrete events that trigger during the simulation."""
     events::Dict
     """ Observables that are computed during the simulation. (Defaults to unknowns of sys)"""
@@ -74,17 +74,17 @@ mutable struct HybridModel
                T <: Lux.Chain =    
         new(sys, surrogate, events, observables, rng, ode_fun, ml_models, data_proportion)
 
-    """ Construct a HybridModel system with a PEtab MLModel surrogate model."""
-    HybridModel(sys::ODESystem, surrogate::T; 
-               events::Dict = Dict(), 
-               observables::Vector = has_observed(sys) || has_observed(surrogate) ?  union([observables(sys);observables(surrogate)]) : unknowns(sys), #choose observables from sys or surrogate if they have them. else use state variables
-               rng::Random.AbstractRNG = Random.default_rng(1234),
-               ode_fun::Function = ODEFunction(sys, surrogate; rng = rng),
-               ml_models::Dict = Dict(:surrogate => surrogate),
-               data_proportion::Float64 = 1.0
-               ) where 
-               {T <: PEtab.MLModel} =    
-        new(sys, surrogate, events, observables, rng, ode_fun, ml_models, data_proportion)
+    # """ Construct a HybridModel system with a PEtab MLModel surrogate model."""
+    # HybridModel(sys::ODESystem, surrogate::T; 
+    #            events::Dict = Dict(), 
+    #            observables::Vector = has_observed(sys) || has_observed(surrogate) ?  union([observables(sys);observables(surrogate)]) : unknowns(sys), #choose observables from sys or surrogate if they have them. else use state variables
+    #            rng::Random.AbstractRNG = Random.default_rng(1234),
+    #            ode_fun::Function = ODEFunction(sys, surrogate; rng = rng),
+    #            ml_models::Dict = Dict(:surrogate => surrogate),
+    #            data_proportion::Float64 = 1.0
+    #            ) where 
+    #            {T <: PEtab.MLModel} =    
+    #     new(sys, surrogate, events, observables, rng, ode_fun, ml_models, data_proportion)
 end
 
 # Convert a dictionary to a NamedTuple (for use with ComponentArrays with ModelingToolkit)
@@ -93,14 +93,15 @@ NamedTuple(dict::Dict) = (; (Symbol(string(k)) => v for (k, v) in dict)...)
 #### HIDDEN ODE METHODS ####
 
 function init_params(model::HybridModel; 
-    lb = ComponentArray(sys = -ones(length(parameters(model.sys))), 
-                        surrogate = -ones(length(parameters(model.surrogate)))),
-    ub = ComponentArray(sys = ones(length(parameters(model.sys))), 
-                        surrogate = ones(length(parameters(model.surrogate)))),
-    n = 1, # number of samples to generate
-    method = :latin_hypercube_sampling, # method to use for sampling parameters
-    )
-    @unpack sys, surrogate, rng = model
+                        lb = ComponentArray(sys = -ones(length(parameters(model.sys))), 
+                                            surrogate = -ones(length(parameters(model.surrogate)))),
+                        ub = ComponentArray(sys = ones(length(parameters(model.sys))), 
+                                            surrogate = ones(length(parameters(model.surrogate)))),
+                        n = 1, # number of samples to generate
+                        method = :latin_hypercube_sampling, # method to use for sampling parameters
+                        rng = model.rng,
+                        )
+    @unpack sys, surrogate = model
     
     # Initialize parameters for the ODE system
     ode_ps = init_params(sys; rng = rng, n = n, lb = lb.sys, ub = ub.sys,
@@ -128,7 +129,7 @@ function DifferentialEquations.ODEFunction(model::HybridModel)
 end
 
 #create the ODE function for the HybridModel system
-function DifferentialEquations.ODEFunction(sys::ODESystem, surrogate::T; rng = Random.default_rng(1234)) where {T <: Union{ModelingToolkit.AbstractTimeDependentSystem, Lux.Chain, PEtab.MLModel}}
+function DifferentialEquations.ODEFunction(sys::ODESystem, surrogate::T; rng = Random.default_rng(1234)) where {T <: Union{ModelingToolkit.AbstractTimeDependentSystem, Lux.Chain}}#, PEtab.MLModel}}
     # Get the derivative function for the ODE system
     ode_fun! = DifferentialEquations.ODEFunction(sys, unknowns(sys), parameters(sys))
     # Get the surrogate derivative function
@@ -244,23 +245,27 @@ function init_params(sys::ODESystem; randfun = rand, rng = Random.default_rng(12
         end 
     end
     if ModelingToolkit.has_defaults(sys) & any([p in keys(ModelingToolkit.get_defaults(sys)) for p in parameters(sys)])
-        defaults = ModelingToolkit.get_defaults(sys)
+        defs = ModelingToolkit.get_defaults(sys)
         # Initialize parameters with defaults (NamedTuple))
-        return (; (Symbol(string(p)) => defaults[p] for p in parameters(sys) if p in keys(defaults))...)
+        return (; zip(parameters(sys) .|> Symbol, 
+                [defs[p] for p in parameters(sys)])...) # Convert to NamedTuple
     else
         # If no defaults, return an empty random values
-        return (; (Symbol(string(p)) => randfun() for p in parameters(sys))...)
+        return (; zip(parameters(sys) .|> Symbol, randfun(rng) for _ in parameters(sys))...)
     end
 end
 
     
 
-function latin_hypercube_sampling(sys::ODESystem, n, lb, ub; rng = Random.default_rng(1234),
+function latin_hypercube_sampling(sys::ODESystem, n, 
+                                lb = -ones(length(parameters(sys))), 
+                                ub = ones(length(parameters(sys))); 
+                                rng = Random.default_rng(1234),
                                 generations = 1000)
         n_parameters = length(parameters(sys))
         samples, _ = LHCoptim(n,n_parameters, generations, rng = rng)
         scaled_samples = scaleLHC(samples, [(lb[i], ub[i]) for i in 1:n_parameters])
-        return [NamedTuple(Dict(Symbol(string(p)) => scaled_samples[i, j] for (j, p) in enumerate(parameters(sys)))) for i in 1:n]
+        return [(; zip(parameters(sys) .|> Symbol, scaled_samples[i, :])...) for i in 1:n]
 end
 
 function derivative_function!(sys::ODESystem; rng = Random.default_rng(1234))
@@ -302,36 +307,36 @@ function observables(nn::Lux.Chain)
     return []
 end
 
-#### PETAB ML MODEL METHODS ####
-function init_params(model::PEtab.MLModel; rng = Random.default_rng(1234))
-    # retrieve the parameters of the PEtab ML model
-    return model.ps
-end
+# #### PETAB ML MODEL METHODS ####
+# function init_params(model::PEtab.MLModel; rng = Random.default_rng(1234))
+#     # retrieve the parameters of the PEtab ML model
+#     return model.ps
+# end
 
-function derivative_function!(model::PEtab.MLModel; rng = Random.default_rng(1234))
-    # Create a function that computes the derivatives of the PEtab ML model
+# function derivative_function!(model::PEtab.MLModel; rng = Random.default_rng(1234))
+#     # Create a function that computes the derivatives of the PEtab ML model
     
-    function _ode!(du, u, p, t, model)
-        du_nn, st = model.model(u,model.ps, model.st)
-        du .= du_nn
-        return nothing
-    end
+#     function _ode!(du, u, p, t, model)
+#         du_nn, st = model.model(u,model.ps, model.st)
+#         du .= du_nn
+#         return nothing
+#     end
 
-    ode! = let _ml_model = model
-        (du, u, p, t) -> _ode!(du, u, p, t, _ml_model)
-    end
-    return deepcopy(ode!)
-end
+#     ode! = let _ml_model = model
+#         (du, u, p, t) -> _ode!(du, u, p, t, _ml_model)
+#     end
+#     return deepcopy(ode!)
+# end
 
-function has_observed(model::PEtab.MLModel)
-    # Check if the PEtab ML model has observed quantities
-    return false
-end
+# function has_observed(model::PEtab.MLModel)
+#     # Check if the PEtab ML model has observed quantities
+#     return false
+# end
 
-function observables(model::PEtab.MLModel)
-    # PEtab ML models do not have observed quantities by default
-    return []
-end
+# function observables(model::PEtab.MLModel)
+#     # PEtab ML models do not have observed quantities by default
+#     return []
+# end
 
 ### NULL MODEL METHODS ###
 function init_params(model::NullModel; rng = Random.default_rng(1234))
@@ -399,7 +404,7 @@ mutable struct HybridPEProblem
                   log_transform::Bool = false,
                   kwargs...
                     ) = new(model, u0map, measurements, 
-                    conditions_in_data(conditions, measurements), 
+                    sort(conditions_in_data(conditions, measurements)), 
                     observables, tspan,
                     define_loss_function(model, observables, measurements, u0map; 
                                          conditions = conditions_in_data(conditions, measurements), 
@@ -455,9 +460,11 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
                               )
     # Define
     u0_conditions = overwrite_conditions!(u0map, conditions)
+    #sort u0 conditions by key
+    u0_conditions = sort(u0_conditions)
     obs_funs = Dict([obs_fun.lhs =>eval(build_function(obs_fun.rhs, unknowns(hmodel.sys), parameters(hmodel.sys); expression=Val{false})) for obs_fun in observed(hmodel.sys)])
     
-    idx_sim = Dict([cond => i for (i, cond) in enumerate(sort(collect(keys(u0_conditions))))]) #create a map from condition name to ensemble index
+    idx_sim = Dict([cond => i for (i, cond) in enumerate(collect(keys(u0_conditions)))]) #create a map from condition name to ensemble index
     idx_var = Dict([var => i for (i, var) in enumerate(unknowns(model.sys))]) #create a map from variable name to index
     ensemble_prob = EnsembleProblem(model, u0_conditions, tspan)
     max_t_gt = maximum(measurements.time) # Get the maximum time from the measurements
@@ -512,6 +519,8 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
 
         for i in 1:size(measurements_batch, 1)
             entry = measurements_batch[i, :]
+            # println("Processing measurement $(i) with simulation ID $(entry.simulation_id) and observable $(entry.obs_id)")
+            # println("simulation has sim id $(idx_sim[entry.simulation_id]) and obs id $(obs[entry.obs_id])")
             @assert isapprox(sim[idx_sim[entry.simulation_id]].t[idx_time[entry.time]], entry.time, atol = 0.1) "The time in the measurement $(entry.time) does not match the simulation time $(sim[idx_sim[entry.simulation_id]].t[idx_time[entry.time]])"
             meas_value = entry.measurement
             sim_value = obs_val_dict[idx_sim[entry.simulation_id]][obs[entry.obs_id]][idx_time[entry.time]]
@@ -553,7 +562,7 @@ function create_callback(peprob::HybridPEProblem;  plot_every = 30, report_every
         end
         if report_every > 0
             if state.iter % report_every == 0
-                println("Iteration: $(state.iter), Loss: $(l), sample_percentage$(peprob.model.data_proportion),Parameters: $(state.u)")
+                println("Iteration: $(state.iter), Loss: $(l), sample_percentage: $(state.p), Parameters: $(state.u)")
             end
         end
         if plot_every > 0
@@ -561,11 +570,11 @@ function create_callback(peprob::HybridPEProblem;  plot_every = 30, report_every
             ps = peprob.log_transform ? exp.(state.u) : state.u # Exponentiate the parameters if log transformation is enabled
             p1 = plot(peprob; included_plots = [:data, :model],
                 saveat = dt,
-                data_proportion = peprob.model.data_proportion,
+                data_proportion = state.p,
                 obs_ids = keys(peprob.observations),
                 xlabel = xlabel,
                 ylabel = ylabel,
-                title = title,
+                title = title*" (Train loss = $(round(l, sigdigits = 2)))",
                 kwargs...,
                 p = ps)
             display(p1)
@@ -681,9 +690,6 @@ function polynomial_basis(x::Array, degree::Int = 1)
 end
 
 
-
-species = unknowns(sys_known)
-unknown_basis = polynomial_basis(species, 2) 
 
 Base.occursin(needle::Num, haystack::Int64) = false # Override occursin for Num types to always return false whenever haystack is an Int64
 function create_unknown_eqs(sys_known::AbstractTimeDependentSystem, unknown_basis::Vector{T}; Ξ = nothing) where T <: Union{Num}
@@ -918,6 +924,24 @@ function plot_hidden_dynamics(peprob::HybridPEProblem;
                 plot!(p1, traj.t, dU_surrogate_true', label = "d".*hcat(string.(unknowns(sys))...).*"/dt_true_$i", subplot = 2, color = hcat(colors...), legend = Symbol(:outer, :right), xlabel = xlabel, ylabel = ylabel)
             end
         end
+    end
+    return p1
+end
+
+
+function param_trace(trace; param_idcs = collect(1:length(trace[1].u)), ground_truth_values = nothing, kwargs...)
+    p1 = plot(; kwargs...)
+    param_matrix = zeros(length(trace), length(param_idcs))
+    colors = [:red, :blue, :green, :orange, :purple, :magenta, :brown]
+    label = last.(split.(labels(trace[1].u), "."))
+    for idx in param_idcs
+        if !isnothing(ground_truth_values)
+            hline!(p1, [ground_truth_values[idx]], label = label[idx].*"_true", color = colors[idx % length(colors) + 1], linestyle = :dash, linewidth = 2, alpha = 0.5)
+        end
+        for (i, state) in enumerate(trace)
+            param_matrix[i, idx] = state.u[idx]
+        end
+        plot!(p1, param_matrix[:, idx], label = label[idx], color = colors[idx % length(colors) + 1], linewidth = 2, markersize = 4, alpha = 0.8)
     end
     return p1
 end

@@ -6,48 +6,50 @@ hmodel = HybridModel(sys_known, sys_unknown_gt; rng = rng)
 
 rootdir = dirname(dirname(dirname(@__FILE__)))
 model_dir = joinpath(rootdir , "models", "lotka_volterra", "Reg", "seed_$seed")
+plot_dir = joinpath(model_dir, "plots")
+if !isdir(plot_dir)
+    mkdir(plot_dir)
+end
 # using IterTools: ncycle
 # using OptimizationOptimisers
 
 alpha = 0.0 # Lasso penalty
 l1_ratio = 0.5 # Lasso/Ridge ratio
-batch_size = 32 # Batch size for the optimization
-obs = Dict("prey_o" => x, "predator_o" => y)
-u0map = Dict([x => 40.0, y => 9.0])
-initial_conditions = Dict(
-    "cond1" => Dict([x => 40.0, y => 9.0]), #remember to define variables before using them
-)
-
-
+# batch_size = 32 # Batch size for the optimization
 #shuffle dataframe rows
-train_measurements = train_measurements[shuffle(rng, 1:nrow(train_measurements)), :]
-peprob = HybridPEProblem(hmodel, obs, train_measurements, u0map; 
-                   conditions = initial_conditions, batch_size = batch_size,)
+trainpeprob = HybridPEProblem(hmodel, obs, train_measurements_exp, u0map; 
+                   conditions = ic_vals )
+valpeprob = HybridPEProblem(hmodel, obs, test_measurements_exp, ic_vals["cond3"];
+                            conditions = ic_vals,
+                            ens_alg = EnsembleSplitThreads(), l1_ratio = l1_ratio, alpha = alpha,
+                            force_dtmin = true)
+
+gt_p = init_params(hmodel)
+p1 = plot(trainpeprob; included_plots = [:data, :model],
+     p = gt_p,
+     curve_label = "Ground Truth",
+     legend = Symbol(:outer, :topright),
+     colors = [:blue, :green, :orange, :purple, :magenta, :brown],
+     xlabel = "Time", ylabel = "Population", title = "Lotka-Volterra Simulated (Training) Data",
+     conds_ids = ["cond1, cond2"],
+     data_proportion = 1.0,
+     size = (1000, 500)
+     )
+savefig(p1, joinpath(plot_dir, "train_peprob.png"))
 
 
-function callback(state, l; plot_every = 30, report_every =10, loss_upper_bound = 1e7) #callback function to observe training
-    sim = simulate_solution(peprob, state.u)
-    if l > loss_upper_bound
-        println("Loss exceeded upper bound at iteration $(state.iter). Stopping optimization.")
-        return true # Stop the optimization if loss exceeds upper bound
-    end
-    if prod(Int.([trajectory.retcode for trajectory in sim])) != 1
-        println("Simulation failed at iteration $(state.iter). Stopping optimization.")
-        return true # Stop the optimization if simulation fails
-    end
-    if state.iter % report_every == 0
-        println("Iteration: $(state.iter), Loss: $(l), Parameters: $(state.u)")
-
-    end
-    if plot_every > 0 && state.iter % plot_every == 0
-        p1 = plot(sim, label = ["Prey_model" "Predator_model"], linewidth=2, markersize=4, legend =:topright)
-        scatter!(p1, timedata[sample_idcs], data[sample_idcs, :], label=["Prey_data" "Predator_data"], xlabel="Time", ylabel="Population", title="Lotka-Volterra Model with Sampled Data", legend =:topright)
-        display(p1)
-    end
-    return false
-end
-
-n_runs = 20 # number of runs for the ensemble
+p2 = plot(valpeprob; included_plots = [:data, :model],
+     p = gt_p,
+     curve_label = "Ground Truth",
+     legend = Symbol(:outer, :topright),
+     colors = [:blue, :green, :orange, :purple, :magenta, :brown],
+     xlabel = "Time", ylabel = "Population", title = "Lotka-Volterra Simulated (Validation) Data",
+     conds_ids = ["cond1, cond2"],
+     data_proportion = 1.0,
+     size = (1000, 500)
+     )
+savefig(p2, joinpath(plot_dir, "val_peprob.png"))
+n_runs = 1 # number of runs for the ensemble
 
 gt_p = init_params(hmodel)
 max_dist_from_gt = 1e-1
@@ -56,18 +58,16 @@ ub = gt_p .+ max_dist_from_gt
 initp_samples = init_params(hmodel, n = n_runs, lb = lb, ub = ub)
 #plot the first to parameters for all samples
 
-
-opt_prob = Optimization.EnsembleProblem(peprob; initp_samples = initp_samples, 
+trainpeprob.obj_func(gt_p, 1.0)
+opt_prob = Optimization.EnsembleProblem(trainpeprob; initp_samples = initp_samples, 
                           alpha = alpha, l1_ratio = l1_ratio, adalg = Optimization.AutoForwardDiff())
-
-# ensembleoptsol = Optimization.solve(opt_prob, PolyOpt(),
-    # EnsembleThreads(), trajectories = n_runs ,epochs = 100)#maxiters = 200, show_trace = true, show_every = 5
-
-ensembleoptsol = Optimization.solve(opt_prob, PolyOptAdamBFGS(), EnsembleThreads(), trajectories = n_runs;
+callback = create_callback(trainpeprob, plot_every = 20, report_every = 30, loss_upper_bound = 1e7,
+                       xlabel = "Time", ylabel = "Population", title = "Lotka-Volterra Simulated Data")
+ensembleoptsol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = 1e-2, n_partitions = 1), EnsembleThreads(), trajectories = n_runs;
                                     show_trace = true, show_every = 50, callback = callback)
 
 best_run = argmin([opt.objective for opt in ensembleoptsol])
-sim = simulate_solution(peprob, gt_p, saveat = collect(0:0.1:100.0))
+sim = simulate_solution(trainpeprob, gt_p, saveat = collect(0:0.1:100.0))
 scatter(timedata[sample_idcs], data[sample_idcs, :], label=["Prey_data" "Predator_data"], xlabel="Time", ylabel="Population", title="Lotka-Volterra Model with Sampled Data", legend =:topright)
 plot!(sim, label = ["Prey_model" "Predator_model"], linewidth=2, markersize=4, legend =:topright)
 

@@ -22,7 +22,7 @@ diss_time = 5.0 # Time of the event
 rn = @reaction_network begin
     # @discrete_events 5.0 => [E ~ 0.0]
     @parameters w_S w_ES w_P
-    @observables v ~ w_S * S + w_ES * ES + w_P * P
+    @observables y ~ w_S * S + w_ES * ES + w_P * P
     ka, E + S --> ES
     kd, ES --> E + S
     kc, ES --> E + P
@@ -32,8 +32,8 @@ rn = complete(rn)
 # Dissociation event
 diss_condition(u,even_time,integrator) = even_time == diss_time # Set the time of the event to 5.0 seconds
 affect!(integrator) = integrator.u[1] = 0.0*integrator.u[1] # Set the concentration of E to 0
-cb =DiscreteCallback(diss_condition, affect!)
-event = Dict(:callback => cb, :tstops => [diss_time]) # Define the event
+dcb = DiscreteCallback(diss_condition, affect!)
+event = Dict(:callback => dcb, :tstops => [diss_time]) # Define the event
 
 odesys = convert(ODESystem, rn)
 #Data setup
@@ -76,8 +76,8 @@ E_df = [DataFrame(simulation_id = "cond$(i)", obs_id = "E", time = timedata[samp
 S_df = [DataFrame(simulation_id = "cond$(i)", obs_id = "S", time = timedata[sample_idcs], measurement = sim[i][sample_idcs][2,:].+noise.*randn(rng, sample_size),) for i in 1:length(initial_conditions)]
 ES_df = [DataFrame(simulation_id = "cond$(i)", obs_id = "ES", time = timedata[sample_idcs], measurement = sim[i][sample_idcs][3,:].+noise.*randn(rng, sample_size),) for i in 1:length(initial_conditions)]
 P_df = [DataFrame(simulation_id = "cond$(i)", obs_id = "P", time = timedata[sample_idcs], measurement = sim[i][sample_idcs][4,:].+noise.*randn(rng, sample_size),) for i in 1:length(initial_conditions)]
-v_df = [DataFrame(simulation_id = "cond$(i)", obs_id = "v", time = timedata[sample_idcs], measurement = sim[i][:v][sample_idcs].+noise.*randn(rng, sample_size),) for i in 1:length(initial_conditions)]
-measurements = vcat(E_df..., S_df..., ES_df..., P_df..., v_df...)
+y_df = [DataFrame(simulation_id = "cond$(i)", obs_id = "y", time = timedata[sample_idcs], measurement = sim[i][:y][sample_idcs].+noise.*randn(rng, sample_size),) for i in 1:length(initial_conditions)]
+measurements = vcat(E_df..., S_df..., ES_df..., P_df..., y_df...)
 
 #plot dataframe
 # label = [x for x in 1:length(initial_conditions)]

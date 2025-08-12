@@ -22,8 +22,8 @@ n_initial_conditions = 3
 #CHANGE NUMBER OF INITIAL CONDITIONS HERE
 
 # batch_size = 32 # Batch size for the optimization
-@unpack E, S, ES, P, v = sys_known
-obs = Dict("v" => v)#"E" => E, "S" => S, "ES" => ES, 
+@unpack E, S, ES, P, y = sys_known
+obs = Dict("y" => y)#"E" => E, "S" => S, "ES" => ES, 
 u0map = Dict([E => 10.0, S => 1.0, ES => 0.0, P => 0.0])
 ic_vals = Dict(["cond$i" => Dict([var => ic[j] for (j, var) in enumerate(unknowns(sys_known))]) for (i, ic) in enumerate(initial_conditions[1:n_initial_conditions])])
 included_exp = (df) -> reduce(.|, [(df.simulation_id .== "cond$i") .& (df.obs_id .== obsvar)
@@ -35,6 +35,8 @@ test_measurements_exp = test_measurements[included_exp(test_measurements), :]
 alpha = 1e-1
 l1_ratio = 0.0
 ###
+
+    u0_conditions = overwrite_conditions!(u0map, conditions)
 gt_p = init_params(hmodel)
 trainpeprob = HybridPEProblem(hmodel, obs, train_measurements_exp, u0map; 
                    conditions = ic_vals,
@@ -43,6 +45,12 @@ trainpeprob = HybridPEProblem(hmodel, obs, train_measurements_exp, u0map;
                 #    log_transform = false, 
                    force_dtmin = true)
 
+
+println("loss $(trainpeprob.obj_func(gt_p, 1.0))")
+
+sim = simulate_solution(trainpeprob, gt_p, saveat = 0.01)
+plot(sim[1][y])
+plot!(sim[2][y])
 valpeprob = HybridPEProblem(hmodel, obs, test_measurements_exp, ic_vals["cond3"];
                             conditions = ic_vals,
                             ens_alg = EnsembleSplitThreads(), l1_ratio = l1_ratio, alpha = alpha,
@@ -93,13 +101,15 @@ opt_prob = Optimization.EnsembleProblem(trainpeprob; initp_samples = initp_sampl
 #     return p1
 # end                                         
 
-
+callback = create_callback(trainpeprob,  plot_every = 30, report_every = 30, loss_upper_bound = 1e7,
+                       xlabel = "Time", ylabel = "Signal", title = "Octet Simulated Data")
 opt_sol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = 1e-2, n_partitions = 3), EnsembleSerial(), 
                             trajectories = 1,
                             maxiters = maxiters,
                             maxiter_BFGS = 300,
                            #  show_trace = true, show_every = 10,
-                            callback = (state, l) -> cb(state, l; trace = trace))
+                            callback = (state, l) -> callback(state, l;))
+
 
 
 # opt_sols = []

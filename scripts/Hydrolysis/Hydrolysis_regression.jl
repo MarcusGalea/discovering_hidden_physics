@@ -14,12 +14,12 @@ if !isdir(plot_dir)
 end
 
 
-# conditions = ic_vals
-u0_conditions = overwrite_conditions!(u0map, conditions)
-obs_funs = Dict([obs_fun.lhs =>eval(build_function(obs_fun.rhs, unknowns(hmodel.sys), parameters(hmodel.sys); expression=Val{false})) for obs_fun in observed(hmodel.sys)])
+# # conditions = ic_vals
+# u0_conditions = overwrite_conditions!(u0map, conditions)
+# obs_funs = Dict([obs_fun.lhs =>eval(build_function(obs_fun.rhs, unknowns(hmodel.sys), parameters(hmodel.sys); expression=Val{false})) for obs_fun in observed(hmodel.sys)])
 
-idx_sim = Dict([cond => i for (i, cond) in enumerate(sort(collect(keys(u0_conditions))))]) #create a map from condition name to ensemble index
-idx_var = Dict([var => i for (i, var) in enumerate(unknowns(hmodel.sys))]) #create a map from variable name to index
+# idx_sim = Dict([cond => i for (i, cond) in enumerate(sort(collect(keys(u0_conditions))))]) #create a map from condition name to ensemble index
+# idx_var = Dict([var => i for (i, var) in enumerate(unknowns(hmodel.sys))]) #create a map from variable name to index
 
 alpha = 0.0
 l1_ratio = 0.0
@@ -35,6 +35,10 @@ trainpeprob = HybridPEProblem(hmodel, obs, train_measurements_exp, u0map;
 
 trainpeprob.obj_func(gt_p, 1.0)
 
+
+using Dates
+date_str = Dates.format(now(), "yyyy-mm-dd_HH-MM-SS")
+
 valpeprob = HybridPEProblem(hmodel, obs, test_measurements_exp, ic_vals["cond3"];
                             conditions = ic_vals,
                             ens_alg = EnsembleSplitThreads(), l1_ratio = l1_ratio, alpha = alpha,
@@ -49,8 +53,9 @@ p1 = plot(trainpeprob; included_plots = [:data, :model],
      data_proportion = 1.0,
      )
 
+trainpeprob.obj_func(gt_p, 1.0)
      #save plot
-savefig(p1, joinpath(plot_dir, "train_peprob.png"))
+savefig(p1, joinpath(plot_dir, "train_peprob_$date_str.png"))
 p2 = plot(valpeprob; included_plots = [:data, :model],
      p = gt_p,
      curve_label = "Ground Truth",
@@ -59,12 +64,11 @@ p2 = plot(valpeprob; included_plots = [:data, :model],
      conds_ids = ["cond1, cond2"],
      data_proportion = 1.0,
      )
-savefig(p2, joinpath(plot_dir, "val_peprob.png"))
-
+savefig(p2, joinpath(plot_dir, "val_peprob_$date_str.png"))
 
 # p2 = plot_hidden_dynamics(trainpeprob; 
 
-n_runs = 1 # number of runs for the ensemble
+n_runs = 10 # number of runs for the ensemble
 max_trials = 10 
 sampling_percentage = 0.2
 maxiters = Int(400/sampling_percentage)
@@ -78,7 +82,7 @@ opt_prob = Optimization.EnsembleProblem(trainpeprob; initp_samples = initp_sampl
 trace = Any[]
 callback = create_callback(trainpeprob,  plot_every = 20, report_every = 30, loss_upper_bound = 1e7,
                        xlabel = "Time", ylabel = "Signal", title = "Octet Simulated Data")
-multi_opt_sol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = 1e-1, n_partitions = 1), EnsembleThreads(), 
+multi_opt_sol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = 1e-1, n_partitions = 3), EnsembleThreads(), 
                             trajectories = n_runs,
                             maxiters = maxiters,
                             maxiter_BFGS = 400,
@@ -88,7 +92,7 @@ print(trainpeprob.obj_func(gt_p, 1.0))
 best_run = argmin([sol.objective for sol in multi_opt_sol])
 
 plot(valpeprob; included_plots = [:data, :model],
-     p = multi_opt_sol[3].u,
+     p = multi_opt_sol[best_run].u,
      colors = [:blue, :green, :orange, :purple, :magenta, :brown],
      xlabel = "Time", ylabel = "Signal", title = "Enzyme Dynamics Simulated Data",
      conds_ids = ["cond1, cond2"],
@@ -112,8 +116,28 @@ opt_sol = Optimization.solve(remake(opt_prob; u0 = initp_samples[best_run]), Pro
 
 p3 = plot_loss([trace], trainpeprob; val_prob = valpeprob,
          xlabel = "Iteration", ylabel = "Loss", title = "Loss Trace", legend = :topright, yscale = :log10)
-savefig(p3, joinpath(plot_dir, "loss_trace.png"))
+savefig(p3, joinpath(plot_dir, "loss_trace_$date_str.png"))
 
 p4 = param_trace(trace; ground_truth_values = gt_p,
             xlabel = "Iteration", ylabel = "Parameter Value", title = "Parameter Trace",
             legend = Symbol(:outer, :topright), markersize = 4)
+savefig(p4, joinpath(plot_dir, "param_trace_$date_str.png"))
+
+#show training fit and validation fit
+p5 = plot(trainpeprob; included_plots = [:data, :model],
+     p = multi_opt_sol[best_run].u,
+     curve_label = "Estimate",
+     colors = [:blue, :green, :orange, :purple, :magenta, :brown],
+     xlabel = "Time", ylabel = "Signal", title = "Enzyme Dynamics Simulated (Training) Data",
+     conds_ids = ["cond1, cond2"],
+     data_proportion = 1.0,
+     )
+
+p6 = plot(valpeprob; included_plots = [:data, :model],
+     p = multi_opt_sol[best_run].u,
+     curve_label = "Estimate",
+     colors = [:blue, :green, :orange, :purple, :magenta, :brown],
+     xlabel = "Time", ylabel = "Signal", title = "Enzyme Dynamics Simulated (Validation) Data",
+     conds_ids = ["cond1, cond2"],
+     data_proportion = 1.0,
+     )

@@ -82,30 +82,6 @@ timedata = peprob.measurements.time
 loss_upper_bound = 1e7
 report_every = 10
 plot_every = 30
-function callback(state, l) #callback function to observe training
-    sim = simulate_solution(peprob, state.u)
-    if l > loss_upper_bound
-        println("Loss exceeded upper bound at iteration $(state.iter). Stopping optimization.")
-        return true # Stop the optimization if loss exceeds upper bound
-    end
-    if prod([SciMLBase.successful_retcode(trajectory) for trajectory in sim]) != 1
-        println("Simulation failed at iteration $(state.iter). Stopping optimization.")
-        return true # Stop the optimization if simulation fails
-    end
-    if report_every > 0
-        if state.iter % report_every == 0
-            println("Iteration: $(state.iter), Loss: $(l), Parameters: $(state.u) and proportion $(state.p)")
-        end
-    end
-    if plot_every > 0
-        if state.iter % plot_every == 0
-            p1 = plot(sim,  linewidth=2, markersize=4, legend =:topright) #label = label.*"_fit"
-            scatter!(p1,timedata, data, legend =:topright)#label=label.*"_data"
-            display(p1)
-        end
-    end
-    return false
-end
 plotsdir = joinpath(model_dir, "plots")
 
 opt_prob = Optimization.EnsembleProblem(peprob; initp_samples = initp_samples,

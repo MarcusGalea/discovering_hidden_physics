@@ -73,6 +73,8 @@ function SciMLBase.__solve(prob::OptimizationProblem,
         args...;
         maxiters = nothing,
         maxiter_BFGS = nothing,
+        exponential_decay = false,
+        reduction_factor = 0.5, #reduction factor of iters per partition
         kwargs...)
     # loss, θ = x -> prob.f(x, prob.p), prob.u0
     # deterministic = first(loss(θ)) == first(loss(θ))
@@ -82,13 +84,13 @@ function SciMLBase.__solve(prob::OptimizationProblem,
     # end
     maxiters = maxiters === nothing ? 300 : maxiters
 
-    iters_per_partition = Int(round(maxiters / opt.n_partitions))
+    iters_per_partition = exponential_decay ? exponential_decaying_iters(maxiters, opt.n_partitions, reduction_factor) : [Int(round(maxiters / opt.n_partitions)) for _ in 1:opt.n_partitions]
     proportion_per_run = 1.0 / opt.n_partitions
     optprob1 = remake(prob, p = proportion_per_run)
     res1 = nothing
     for i in 1:opt.n_partitions
         println("Running partition $(i) of $(opt.n_partitions) with proportion $(optprob1.p)")
-        res1 = Optimization.solve(optprob1, Optimisers.ADAM(opt.lr,opt.beta,opt.epsilon), args...; maxiters = iters_per_partition,
+        res1 = Optimization.solve(optprob1, Optimisers.ADAM(opt.lr,opt.beta,opt.epsilon), args...; maxiters = iters_per_partition[i],
             kwargs...)
         optprob1 = remake(optprob1, p = proportion_per_run * (i+1), u0 = res1.u)
     end
@@ -104,3 +106,19 @@ function SciMLBase.__solve(prob::OptimizationProblem,
     return res1
 end
 export ProgressivePolyOpt
+
+function exponential_decaying_iters(maxiters, n_partitions, r = 0.5)
+    """
+    Generate a vector of iterations per partition with exponential decay.
+    
+    # Arguments
+    - `maxiters`: Total number of iterations.
+    - `n_partitions`: Number of partitions.
+    - `r`: Decay factor (0 < r < 1).
+    
+    # Returns
+    A vector of iterations per partition.
+    """
+    weights = [r^(i-1) for i in 1:n_partitions]
+    return round.(Int, maxiters * weights / sum(weights))
+end

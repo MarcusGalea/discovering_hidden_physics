@@ -31,6 +31,22 @@ trainpeprob = HybridPEProblem(hmodel, obs, train_measurements_exp, u0map;
                    ens_alg = EnsembleSplitThreads(), l1_ratio = l1_ratio, alpha = alpha,
                 #    log_transform = false, 
                    force_dtmin = true)
+trainpeprob.obj_func(gt_p, 1.0) # Test the objective function with ground truth parameters and a proportion of 1.0
+
+
+
+
+loss_function(gt_p, 1.0) # Test the loss function with ground truth parameters and a proportion of 1.0
+
+
+
+
+
+
+
+
+
+
 
 
 trainpeprob.obj_func(gt_p, 1.0)
@@ -68,7 +84,7 @@ savefig(p2, joinpath(plot_dir, "val_peprob_$date_str.png"))
 
 # p2 = plot_hidden_dynamics(trainpeprob; 
 
-n_runs = 10 # number of runs for the ensemble
+n_runs = 5 # number of runs for the ensemble
 max_trials = 10 
 sampling_percentage = 0.2
 maxiters = Int(400/sampling_percentage)
@@ -90,7 +106,7 @@ multi_opt_sol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = 1e-1, n_par
                             callback = (state, l) -> callback(state, l; trace = nothing))
 print(trainpeprob.obj_func(gt_p, 1.0))
 best_run = argmin([sol.objective for sol in multi_opt_sol])
-
+p_est = multi_opt_sol[best_run].u
 plot(valpeprob; included_plots = [:data, :model],
      p = multi_opt_sol[best_run].u,
      colors = [:blue, :green, :orange, :purple, :magenta, :brown],
@@ -133,6 +149,7 @@ p5 = plot(trainpeprob; included_plots = [:data, :model],
      data_proportion = 1.0,
      )
 
+savefig(p5, joinpath(plot_dir, "train_fit_$date_str.png"))
 p6 = plot(valpeprob; included_plots = [:data, :model],
      p = multi_opt_sol[best_run].u,
      curve_label = "Estimate",
@@ -141,3 +158,6 @@ p6 = plot(valpeprob; included_plots = [:data, :model],
      conds_ids = ["cond1, cond2"],
      data_proportion = 1.0,
      )
+savefig(p6, joinpath(plot_dir, "val_fit_$date_str.png"))
+
+p_est = opt_sol.u

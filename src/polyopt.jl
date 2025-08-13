@@ -61,7 +61,7 @@ mutable struct ProgressivePolyOpt{T}
     n_partitions::Int
 end
 
-function ProgressivePolyOpt(; lr = 0.01, beta = (0.9, 0.999), epsilon = 1e-8, initial_stepnorm = 1.0, n_partitions = 1)
+function ProgressivePolyOpt(; lr = 0.01, beta = (0.9, 0.999), epsilon = 1e-8, initial_stepnorm = 0.01, n_partitions = 1)
     T = typeof(lr)
     ProgressivePolyOpt{T}(lr, beta, epsilon, initial_stepnorm, n_partitions)
 end
@@ -73,7 +73,7 @@ function SciMLBase.__solve(prob::OptimizationProblem,
         args...;
         maxiters = nothing,
         maxiter_BFGS = nothing,
-        exponential_decay = false,
+        exponential_decay = true,
         reduction_factor = 0.5, #reduction factor of iters per partition
         kwargs...)
     # loss, θ = x -> prob.f(x, prob.p), prob.u0
@@ -94,14 +94,16 @@ function SciMLBase.__solve(prob::OptimizationProblem,
             kwargs...)
         optprob1 = remake(optprob1, p = proportion_per_run * (i+1), u0 = res1.u)
     end
-    maxiter_BFGS = maxiter_BFGS === nothing ? iters_per_partition : maxiter_BFGS
-    try
-        res1 = Optimization.solve(optprob1, BFGS(initial_stepnorm = opt.initial_stepnorm), args...;
-                            maxiters = maxiter_BFGS, kwargs...)
-    catch AssertionError
-        @warn "BFGS failed to converge, running Adam instead."
-        res1 = Optimization.solve(optprob1, Optimisers.ADAM(opt.lr,opt.beta,opt.epsilon), args...; maxiters = maxiter_BFGS,
-            kwargs...)
+    maxiter_BFGS = maxiter_BFGS === nothing ? 300 : maxiter_BFGS
+    if maxiter_BFGS > 0
+        try
+            res1 = Optimization.solve(optprob1, BFGS(initial_stepnorm = opt.initial_stepnorm), args...;
+                                maxiters = maxiter_BFGS, kwargs...)
+        catch AssertionError
+            @warn "BFGS failed to converge, running Adam instead."
+            res1 = Optimization.solve(optprob1, Optimisers.ADAM(opt.lr,opt.beta,opt.epsilon), args...; maxiters = maxiter_BFGS,
+                kwargs...)
+        end
     end
     return res1
 end

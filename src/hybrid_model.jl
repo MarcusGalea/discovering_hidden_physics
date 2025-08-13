@@ -34,7 +34,7 @@ end
 mutable struct HybridModel
     """ The known underlying ODE system."""
     sys::ODESystem
-    """ The surrogate model, which can be a normal ODESystem, SINDy model, or a Lux neural network."""
+    """ The surrogate model, which can be a normal ODESystem, SINDy model, or a Lux Machine Learning Model."""
     surrogate::Union{ModelingToolkit.AbstractTimeDependentSystem, Lux.Chain}#, PEtab.MLModel}
     """ Discrete events that trigger during the simulation."""
     events::Dict
@@ -187,8 +187,10 @@ function DifferentialEquations.EnsembleProblem(model::HybridModel, u0s::Dict{Str
     function prob_func(prob, i, repeat)
         if u0s[conds[i]] isa Dict
             u0 = [u0s[conds[i]][var] for var in unknowns(model.sys)]
-        else
+        elseif u0s[conds[i]] isa Vector
             u0 = u0s[conds[i]]
+        else
+            @error "Unknown type for initial conditions: $(typeof(u0s[conds[i]]))"
         end
         remake(prob, u0 = u0)
     end
@@ -201,8 +203,10 @@ function DifferentialEquations.EnsembleProblem(model::HybridModel, u0s::Any, tsp
     function prob_func(prob, i, repeat)
         if u0s[conds[i]] isa Dict
             u0 = [u0s[conds[i]][var] for var in unknowns(model.sys)]
-        else
+        elseif u0s[conds[i]] isa Vector
             u0 = u0s[conds[i]]
+        else
+            @error "Unknown type for initial conditions: $(typeof(u0s[conds[i]]))"
         end
         remake(prob, u0 = u0)
     end
@@ -383,7 +387,7 @@ mutable struct HybridPEProblem
     observations::Dict
     """ The time span for the simulation."""
     tspan::Tuple
-    """ Create an objective function for the HybridPEProblem."""
+    """ Create an objective function for the HybridPEProblem. (Loss Function)"""
     obj_func::Function
     """Upper bounds for the parameters. This is a component array that maps the parameter names to their upper bounds."""
     ub
@@ -391,7 +395,7 @@ mutable struct HybridPEProblem
     lb
     """ Batch size for the data loader. This is used to create a DataLoader for the measurements."""
     batch_size::Int
-    """log transform parameters before optimization"""
+    """log transform parameters before optimization (used to impose parameters > 0)"""
     log_transform::Bool
 
     """ Create a HybridPEProblem for the HybridModel."""
@@ -404,10 +408,10 @@ mutable struct HybridPEProblem
                   log_transform::Bool = false,
                   kwargs...
                     ) = new(model, u0map, measurements, 
-                    sort(conditions_in_data(conditions, measurements)), 
+                    sort(conditions_in_data(conditions, measurements)) |> Dict, 
                     observables, tspan,
                     define_loss_function(model, observables, measurements, u0map; 
-                                         conditions = conditions_in_data(conditions, measurements), 
+                                         conditions = sort(conditions_in_data(conditions, measurements)) |> Dict, 
                                          log_transform = log_transform,
                                          tspan = tspan, kwargs...),
                     ub, lb, batch_size, log_transform)
@@ -459,13 +463,15 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
                               kwargs...
                               )
     # Define
+    conditions = sort(conditions_in_data(conditions, measurements)) |> Dict # Sort conditions by key
     u0_conditions = overwrite_conditions!(u0map, conditions)
     #sort u0 conditions by key
-    u0_conditions = sort(u0_conditions)
     obs_funs = Dict([obs_fun.lhs =>eval(build_function(obs_fun.rhs, unknowns(hmodel.sys), parameters(hmodel.sys); expression=Val{false})) for obs_fun in observed(hmodel.sys)])
     
     idx_sim = Dict([cond => i for (i, cond) in enumerate(collect(keys(u0_conditions)))]) #create a map from condition name to ensemble index
     idx_var = Dict([var => i for (i, var) in enumerate(unknowns(model.sys))]) #create a map from variable name to index
+    
+    u0_conditions = convert_to_vector_conditions(u0_conditions, idx_sim, model) # Convert the initial conditions to a vector format for the ensemble problem
     ensemble_prob = EnsembleProblem(model, u0_conditions, tspan)
     max_t_gt = maximum(measurements.time) # Get the maximum time from the measurements
     unique_times = unique(measurements.time)
@@ -474,7 +480,8 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
         if log_transform
             p = exp.(p) # Exponentiate the parameters if log transformation is enabled
         end
-        ensemble_prob = remake(ensemble_prob, p = p) #SUPER SMART!! This allows us to change the parameters of the ensemble problem without creating a new one
+        ensemble_prob = remake(ensemble_prob, p = p, prob_func = ensemble_prob.prob_func) #SUPER SMART!! This allows us to change the parameters of the ensemble problem without creating a new one
+        # ensemble_prob = EnsembleProblem(model, u0_conditions, tspan, p) # Create
         t_upper_bound = max_t_gt
         if isnothing(second_argument)
             measurements_batch = measurements # If no measurements are provided, use the full measurements DataFrame
@@ -485,9 +492,8 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
         elseif second_argument isa Float64
             #if second_argument is a Float64, we assume it's the proportion of data to use for the optimization function
             t_upper_bound = second_argument * max_t_gt
-            ensemble_prob = remake(ensemble_prob, tspan = (0.0, t_upper_bound))
+            ensemble_prob = remake(ensemble_prob, tspan = (0.0, t_upper_bound), prob_func = ensemble_prob.prob_func)
             measurements_batch = measurements[measurements.time .<= t_upper_bound, :] # Filter measurements to only include those within the time bounds
-            model.data_proportion = second_argument # Update the data proportion in the model
             unique_times = unique(measurements_batch.time) # Update the unique times based on the filtered measurements
         else
             @error "No option for second argument"
@@ -540,6 +546,13 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
     return deepcopy(loss_function)
 end
 
+function convert_to_vector_conditions(u0_conditions, idx_sim, hmodel::HybridModel)
+    u0_conditions_vec = [Float64[] for _  in 1:length(u0_conditions)]
+    for (cond, idx) in idx_sim
+        u0_conditions_vec[idx] = [u0_conditions[cond][var] for var in unknowns(hmodel.sys)]
+    end
+    return u0_conditions_vec
+end
 
 
 function create_callback(peprob::HybridPEProblem;  plot_every = 30, report_every = 10, loss_upper_bound = 1e7, dt = 0.05,
@@ -567,10 +580,11 @@ function create_callback(peprob::HybridPEProblem;  plot_every = 30, report_every
         end
         if plot_every > 0
             if state.iter % plot_every == 0
+            data_proportion = state.p isa Float64 ? state.p : 1.0
             ps = peprob.log_transform ? exp.(state.u) : state.u # Exponentiate the parameters if log transformation is enabled
             p1 = plot(peprob; included_plots = [:data, :model],
                 saveat = dt,
-                data_proportion = state.p,
+                data_proportion = data_proportion,
                 obs_ids = keys(peprob.observations),
                 xlabel = xlabel,
                 ylabel = ylabel,
@@ -666,7 +680,7 @@ function latin_hypercube(trajectories::Int, problem::HybridPEProblem; generation
     return scaled_samples
 end
 
-#### SINDy METHODS ####
+#### SINDy METHODS #### 
 function polynomial_basis(x::Array, degree::Int = 1)
     @assert degree > 0
     n_x = length(x)
@@ -915,9 +929,10 @@ function plot_hidden_dynamics(peprob::HybridPEProblem;
                     dU_sys_true[:,i] = ode_fun!(dU_sys_true[:,i], u, p_true.sys, tval)
                 end
             end
-            plot!(p1, traj.t, dU_sys', label = "d".*hcat(string.(unknowns(sys))...).*"/dt_est_$i", subplot = 1, 
+            #make dotted lines
+            plot!(p1, traj.t, dU_sys', label = "d".*hcat(string.(unknowns(sys))...).*"/dt_est_$i", subplot = 1, linestyle = :dash, 
                     color = hcat(colors...), legend = Symbol(:outer, :left), title = "Known System Dynamics", xlabel = xlabel, ylabel = ylabel)
-            plot!(p1, traj.t, dU_surrogate', label = "d".*hcat(string.(unknowns(sys))...).*"/dt_est_$i", subplot = 2, 
+            plot!(p1, traj.t, dU_surrogate', label = "d".*hcat(string.(unknowns(sys))...).*"/dt_est_$i", subplot = 2, linestyle = :dash,
                     color = hcat(colors...), legend = Symbol(:outer, :right), title = "Surrogate Dynamics", xlabel = xlabel, ylabel = ylabel)
             if !isnothing(p_true)
                 plot!(p1, traj.t, dU_sys_true', label = "d".*hcat(string.(unknowns(sys))...).*"/dt_true_$i", subplot = 1, color = hcat(colors...), legend = Symbol(:outer, :left), xlabel = xlabel, ylabel = ylabel)

@@ -10,20 +10,6 @@ rootdir = dirname(dirname(dirname(@__FILE__)))
 model_dir = joinpath(rootdir , "models", "enzyme_dynamics", "Reg", "seed_$seed")
 
 
-### OPTIMIZATION
-n_initial_conditions = 3
-#CHANGE NUMBER OF INITIAL CONDITIONS HERE
-
-# batch_size = 32 # Batch size for the optimization
-@unpack E, S, ES, P, v = sys_known
-obs = Dict("v" => v)#"E" => E, "S" => S, "ES" => ES, 
-u0map = Dict([E => 10.0, S => 1.0, ES => 0.0, P => 0.0])
-ic_vals = Dict(["cond$i" => Dict([var => ic[j] for (j, var) in enumerate(unknowns(sys_known))]) for (i, ic) in enumerate(initial_conditions[1:n_initial_conditions])])
-included_exp = (df) -> reduce(.|, [(df.simulation_id .== "cond$i") .& (df.obs_id .== obsvar)
-                               for i in 1:n_initial_conditions for obsvar in keys(obs)])
-train_measurements_exp = train_measurements[included_exp(train_measurements), :]
-test_measurements_exp = test_measurements[included_exp(test_measurements), :]
-
 
 alpha = 1e-2
 l1_ratio = 0.0

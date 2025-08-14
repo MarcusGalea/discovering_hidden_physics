@@ -12,6 +12,7 @@ using ComponentArrays
 using LatinHypercubeSampling
 using MLUtils
 using Surrogates
+using Colors
 
 
 #DANGEROUS CONVSERION INCOMING! MIGHT RUIN OPTIMIZATION (yet necessary for AD with BFGS)
@@ -446,6 +447,16 @@ function ModelingToolkit.unknowns(model::HybridModel)
     return unknowns(model.sys)
 end
 
+function in_isequal(x, arr)
+    for y in arr
+        if isequal(x, y)
+            return true
+        end
+    end
+    return false
+end
+
+
 function define_loss_function(model::HybridModel, obs::Dict, measurements::DataFrame, u0map; 
                               conditions::Dict = Dict("cond1" => u0map), 
                               tspan::Tuple = (0.0, maximum(measurements.time)),
@@ -465,9 +476,11 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
     # Define
     conditions = sort(conditions_in_data(conditions, measurements)) |> Dict # Sort conditions by key
     u0_conditions = overwrite_conditions!(u0map, conditions)
-    #sort u0 conditions by key
-    obs_funs = Dict([obs_fun.lhs =>eval(build_function(obs_fun.rhs, unknowns(hmodel.sys), parameters(hmodel.sys); expression=Val{false})) for obs_fun in observed(hmodel.sys)])
-    
+    #sort u0 conditions by keyobs
+    included_obs = [in_isequal(obsvar, values(obs)) for obsvar in observables(hmodel.sys)]
+    obseqs = observed(model.sys)[included_obs]
+    obs_funs = Dict([obs_fun.lhs =>eval(build_function(obs_fun.rhs, unknowns(model.sys), parameters(model.sys); expression=Val{false})) for obs_fun in obseqs])
+
     idx_sim = Dict([cond => i for (i, cond) in enumerate(collect(keys(u0_conditions)))]) #create a map from condition name to ensemble index
     idx_var = Dict([var => i for (i, var) in enumerate(unknowns(model.sys))]) #create a map from variable name to index
     
@@ -518,7 +531,7 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
             measurements_batch = measurements_batch[rand_indices, :]
         end
         idx_time = Dict(time => i for (i, time) in enumerate(sim[1].t))
-        obs_val_dict = [observable_dict(sim[i], p, model, obs_funs) for i in 1:length(u0_conditions)]
+        obs_val_dict = length(obseqs) == 0 ? sim : [observable_dict(sim[i], p, model, obs_funs) for i in 1:length(u0_conditions)]
         loss = 0.0 
         n = size(measurements_batch, 1) # Number of measurements
         # some algorithms don't support DataLoaders, so we access dataframe directly
@@ -910,33 +923,42 @@ function plot_hidden_dynamics(peprob::HybridPEProblem;
         #TODO
     else
         sim = simulate_solution(peprob, p_true, saveat = dt)
-        for (i, traj) in enumerate(sim)
-            dU_sys = zeros(length(unknowns(sys)), length(traj.t))
+        n_vars = length(unknowns(sys))
+        n_traj = length(sim)
+        # Generate enough unique colors for all (var, traj) pairs
+        palette = distinguishable_colors(n_vars * n_traj)
+        varnames = string.(unknowns(sys))
+        for (traj_idx, traj) in enumerate(sim)
+            dU_sys = zeros(n_vars, length(traj.t))
             dU_surrogate = copy(dU_sys)
             if !isnothing(p_true)
-                dU_sys_true = zeros(length(unknowns(sys)), length(traj.t))
+                dU_sys_true = zeros(n_vars, length(traj.t))
                 dU_surrogate_true = copy(dU_sys_true)
             end
-            for (i,tval) in enumerate(traj.t)
-                # Get the state at time tval
-                u = traj.u[i]
-                # Compute the surrogate dynamics
-                dU_surrogate[:,i] = surrogate_fun!(dU_surrogate[:,i], u, p_est.surrogate, tval)
-                # Compute the ODE dynamics
-                dU_sys[:,i] = ode_fun!(dU_sys[:,i], u, p_est.sys, tval)
+            for (tidx, tval) in enumerate(traj.t)
+                u = traj.u[tidx]
+                dU_surrogate[:,tidx] = surrogate_fun!(dU_surrogate[:,tidx], u, p_est.surrogate, tval)
+                dU_sys[:,tidx] = ode_fun!(dU_sys[:,tidx], u, p_est.sys, tval)
                 if !isnothing(p_true)
-                    dU_surrogate_true[:,i] = surrogate_fun!(dU_surrogate_true[:,i], u, p_true.surrogate, tval)
-                    dU_sys_true[:,i] = ode_fun!(dU_sys_true[:,i], u, p_true.sys, tval)
+                    dU_surrogate_true[:,tidx] = surrogate_fun!(dU_surrogate_true[:,tidx], u, p_true.surrogate, tval)
+                    dU_sys_true[:,tidx] = ode_fun!(dU_sys_true[:,tidx], u, p_true.sys, tval)
                 end
             end
-            #make dotted lines
-            plot!(p1, traj.t, dU_sys', label = "d".*hcat(string.(unknowns(sys))...).*"/dt_est_$i", subplot = 1, linestyle = :dash, 
-                    color = hcat(colors...), legend = Symbol(:outer, :left), title = "Known System Dynamics", xlabel = xlabel, ylabel = ylabel)
-            plot!(p1, traj.t, dU_surrogate', label = "d".*hcat(string.(unknowns(sys))...).*"/dt_est_$i", subplot = 2, linestyle = :dash,
-                    color = hcat(colors...), legend = Symbol(:outer, :right), title = "Surrogate Dynamics", xlabel = xlabel, ylabel = ylabel)
-            if !isnothing(p_true)
-                plot!(p1, traj.t, dU_sys_true', label = "d".*hcat(string.(unknowns(sys))...).*"/dt_true_$i", subplot = 1, color = hcat(colors...), legend = Symbol(:outer, :left), xlabel = xlabel, ylabel = ylabel)
-                plot!(p1, traj.t, dU_surrogate_true', label = "d".*hcat(string.(unknowns(sys))...).*"/dt_true_$i", subplot = 2, color = hcat(colors...), legend = Symbol(:outer, :right), xlabel = xlabel, ylabel = ylabel)
+            for var_idx in 1:n_vars
+                color_idx = (traj_idx - 1) * n_vars + var_idx
+                color = palette[color_idx]
+                # Known system
+                plot!(p1, traj.t, dU_sys[var_idx, :], label = "d$(varnames[var_idx])/dt_est_$(traj_idx)", subplot = 1, linestyle = :dash,
+                      color = color, legend = Symbol(:outer, :left), title = "Known System Dynamics", xlabel = xlabel, ylabel = ylabel)
+                # Surrogate
+                plot!(p1, traj.t, dU_surrogate[var_idx, :], label = "d$(varnames[var_idx])/dt_est_$(traj_idx)", subplot = 2, linestyle = :dash,
+                      color = color, legend = Symbol(:outer, :right), title = "Surrogate Dynamics", xlabel = xlabel, ylabel = ylabel)
+                if !isnothing(p_true)
+                    plot!(p1, traj.t, dU_sys_true[var_idx, :], label = "d$(varnames[var_idx])/dt_true_$(traj_idx)", subplot = 1,
+                          color = color, legend = Symbol(:outer, :left), xlabel = xlabel, ylabel = ylabel)
+                    plot!(p1, traj.t, dU_surrogate_true[var_idx, :], label = "d$(varnames[var_idx])/dt_true_$(traj_idx)", subplot = 2,
+                          color = color, legend = Symbol(:outer, :right), xlabel = xlabel, ylabel = ylabel)
+                end
             end
         end
     end

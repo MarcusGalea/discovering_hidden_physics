@@ -24,32 +24,12 @@ end
 alpha = 0.0
 l1_ratio = 0.0
 ###
-u0map
 gt_p = init_params(hmodel)
 trainpeprob = HybridPEProblem(hmodel, obs, train_measurements_exp, u0map; 
                    conditions = ic_vals,
                    ens_alg = EnsembleSplitThreads(), l1_ratio = l1_ratio, alpha = alpha,
                 #    log_transform = false, 
                    force_dtmin = true)
-trainpeprob.obj_func(gt_p, 1.0) # Test the objective function with ground truth parameters and a proportion of 1.0
-
-
-
-
-loss_function(gt_p, 1.0) # Test the loss function with ground truth parameters and a proportion of 1.0
-
-
-
-
-
-
-
-
-
-
-
-
-trainpeprob.obj_func(gt_p, 1.0)
 
 
 using Dates
@@ -71,7 +51,7 @@ p1 = plot(trainpeprob; included_plots = [:data, :model],
 
 trainpeprob.obj_func(gt_p, 1.0)
      #save plot
-savefig(p1, joinpath(plot_dir, "train_peprob_$date_str.png"))
+savefig(p1, joinpath(plot_dir, "Traindata_$date_str.png"))
 p2 = plot(valpeprob; included_plots = [:data, :model],
      p = gt_p,
      curve_label = "Ground Truth",
@@ -80,11 +60,11 @@ p2 = plot(valpeprob; included_plots = [:data, :model],
      conds_ids = ["cond1, cond2"],
      data_proportion = 1.0,
      )
-savefig(p2, joinpath(plot_dir, "val_peprob_$date_str.png"))
+savefig(p2, joinpath(plot_dir, "Valdata_$date_str.png"))
 
 # p2 = plot_hidden_dynamics(trainpeprob; 
 
-n_runs = 5 # number of runs for the ensemble
+n_runs = 10 # number of runs for the ensemble
 max_trials = 10 
 sampling_percentage = 0.2
 maxiters = Int(400/sampling_percentage)
@@ -95,8 +75,8 @@ initp_samples = init_params(hmodel, n = n_runs, lb = lb, ub = ub, rng = Random.d
 opt_prob = Optimization.EnsembleProblem(trainpeprob; initp_samples = initp_samples, adalg = Optimization.AutoForwardDiff(),
                                          random_sampling_percentage = sampling_percentage)
 
-trace = Any[]
-callback = create_callback(trainpeprob,  plot_every = 20, report_every = 30, loss_upper_bound = 1e7,
+# trace = Any[]
+callback = create_callback(trainpeprob,  plot_every = 30, report_every = 30, loss_upper_bound = 1e7,
                        xlabel = "Time", ylabel = "Signal", title = "Octet Simulated Data")
 multi_opt_sol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = 1e-1, n_partitions = 3), EnsembleThreads(), 
                             trajectories = n_runs,
@@ -104,37 +84,33 @@ multi_opt_sol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = 1e-1, n_par
                             maxiter_BFGS = 400,
                            #  show_trace = true, show_every = 10,
                             callback = (state, l) -> callback(state, l; trace = nothing))
-print(trainpeprob.obj_func(gt_p, 1.0))
+
+
 best_run = argmin([sol.objective for sol in multi_opt_sol])
-p_est = multi_opt_sol[best_run].u
-plot(valpeprob; included_plots = [:data, :model],
-     p = multi_opt_sol[best_run].u,
-     colors = [:blue, :green, :orange, :purple, :magenta, :brown],
-     xlabel = "Time", ylabel = "Signal", title = "Enzyme Dynamics Simulated Data",
-     conds_ids = ["cond1, cond2"],
-     data_proportion = 1.0,
-     )
-
-
 # multi_opt_sols = []
 trace = []
 callback = create_callback(trainpeprob,  plot_every = 30, report_every = 30, loss_upper_bound = 1e7,
                        xlabel = "Time", ylabel = "Signal", title = "Octet Simulated Data")
 # for (i, trace) in enumerate(traces)
-opt_sol = Optimization.solve(remake(opt_prob; u0 = initp_samples[best_run]), ProgressivePolyOpt(lr = 1e-2, n_partitions = 3), EnsembleSerial(),
+opt_sol = Optimization.solve(remake(opt_prob; u0 = initp_samples[best_run]), ProgressivePolyOpt(lr = 1e-1, n_partitions = 3, initial_stepnorm = 1e-4), EnsembleSerial(),
                             trajectories = 1,
                                 maxiters = maxiters,
                                 maxiter_BFGS = 300,
                                 #  show_trace = true, show_every = 10,
                                 callback = (state, l) -> callback(state, l; trace = trace))
 # end
+opt_sol_bfgs = Optimization.solve(remake(opt_prob; u0 = opt_sol[1].u), Optim.BFGS(alphaguess =0.001), EnsembleSerial(),
+                            trajectories = 1,
+                                maxiters = 300,
+                                #  show_trace = true, show_every = 10,
+                                callback = (state, l) -> callback(state, l; trace = trace))
 
 
-p3 = plot_loss([trace], trainpeprob; val_prob = valpeprob,
+
+p3 = plot_loss([trace], trainpeprob; val_prob = valpeprob, size = (1000, 500), margin = 5Plots.mm,
          xlabel = "Iteration", ylabel = "Loss", title = "Loss Trace", legend = :topright, yscale = :log10)
 savefig(p3, joinpath(plot_dir, "loss_trace_$date_str.png"))
-
-p4 = param_trace(trace; ground_truth_values = gt_p,
+p4 = param_trace(trace; ground_truth_values = gt_p, size = (1000, 500), margin = 5Plots.mm,
             xlabel = "Iteration", ylabel = "Parameter Value", title = "Parameter Trace",
             legend = Symbol(:outer, :topright), markersize = 4)
 savefig(p4, joinpath(plot_dir, "param_trace_$date_str.png"))

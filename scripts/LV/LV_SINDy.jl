@@ -15,6 +15,9 @@ if !isdir(model_dir)
     mkpath(model_dir)
 end
 
+
+
+
 ### Create SINDy system
 species = unknowns(sys_known)
 unknown_basis = polynomial_basis(species, 2) # Create the unknown equations
@@ -65,8 +68,8 @@ initp_samples = init_params(hmodel, n = n_runs, lb = lb, ub = ub)*0.0
 # Convert Dual numbers to Float64 by taking the value part
 
 
-alpha = 1e-1
-l1_ratio = 0.5 # L1 regularization ratio
+alpha = 1e-0
+l1_ratio = 1.0 # L1 regularization ratio
 
 peprob = HybridPEProblem(hmodel, obs, train_measurements_exp, u0map;
                 conditions = ic_vals, force_dtmin = true, alpha = alpha, l1_ratio = l1_ratio)
@@ -88,9 +91,9 @@ opt_prob = Optimization.EnsembleProblem(peprob; initp_samples = initp_samples,
                         )
 trace = []
 callback = create_callback(trainpeprob,  plot_every = 50, report_every = 50, loss_upper_bound = 1e7,
-                       xlabel = "Time", ylabel = "Signal", title = "Octet Simulated Data")
+                       xlabel = "Time", ylabel = "Signal", title = "Lotka Volterra Dynamics")
 # for (i, trace) in enumerate(traces)
-opt_sol = Optimization.solve(remake(opt_prob; u0 = initp_samples), ProgressivePolyOpt(lr = 1e-4, n_partitions = 10), EnsembleSerial(),
+opt_sol = Optimization.solve(remake(opt_prob; u0 = initp_samples), ProgressivePolyOpt(lr = 1e-4, initial_stepnorm = 0.0001, n_partitions = 10), EnsembleSerial(),
                             trajectories = 1,
                                 maxiters = 3000,
                                 maxiter_BFGS = 0,
@@ -98,7 +101,11 @@ opt_sol = Optimization.solve(remake(opt_prob; u0 = initp_samples), ProgressivePo
                                 #  show_trace = true, show_every = 10,
                                 callback = (state, l) -> callback(state, l; trace = trace))
 
-
+opt_sol_bfgs = Optimization.solve(remake(opt_prob; u0 = opt_sol[1].u), Optim.BFGS(alphaguess =0.0001), EnsembleSerial(),
+                            trajectories = 1,
+                                maxiters = 300,
+                                #  show_trace = true, show_every = 10,
+                                callback = (state, l) -> callback(state, l; trace = trace))
 
 
 plot_dir = joinpath(model_dir, "plots")
@@ -106,34 +113,45 @@ datestring = Dates.format(now(), "yyyy-mm-dd_HH-MM-SS")
 p3 = plot_loss([trace], trainpeprob; val_prob = valpeprob,
          xlabel = "Iteration", ylabel = "Loss", title = "Loss Trace", legend = :topright, yscale = :log10, size = (1000, 500), margin = 5Plots.mm)
 savefig(p3, joinpath(plot_dir, "loss_trace_$datestring.png"))
+display(p3)
 
 p4 = param_trace(trace; ground_truth_values = gt_p,
             xlabel = "Iteration", ylabel = "Parameter Value", title = "Parameter Trace",
-            legend = :topleft, markersize = 4, size = (1000, 500), margin = 5Plots.mm)
-savefig(p4, joinpath(plot_dir, "param_trace_.png"))
-
+            legend = Symbol(:outer, :topleft), markersize = 4, size = (1000, 500), margin = 5Plots.mm)
+savefig(p4, joinpath(plot_dir, "param_trace_$datestring.png"))
+display(p4)
 #show training fit and validation fit
 p5 = plot(trainpeprob; included_plots = [:data, :model],
-     p = opt_sol[1].u,
+     p = opt_sol_bfgs[1].u,
      curve_label = "Estimate",
      colors = [:blue, :green, :orange, :purple, :magenta, :brown],
-     xlabel = "Time", ylabel = "Signal", title = "Enzyme Dynamics Simulated (Training) Data",
+     xlabel = "Time", ylabel = "Population", title = "Lotka-Volterra Simulated (Training) Data",
      conds_ids = ["cond1, cond2"],
      data_proportion = 1.0,
      )
 
 savefig(p5, joinpath(plot_dir, "train_fit_$datestring.png"))
 p6 = plot(valpeprob; included_plots = [:data, :model],
-     p = opt_sol[1].u,
+     p = opt_sol_bfgs[1].u,
      curve_label = "Estimate",
      colors = [:blue, :green, :orange, :purple, :magenta, :brown],
-     xlabel = "Time", ylabel = "Signal", title = "Enzyme Dynamics Simulated (Validation) Data",
+     xlabel = "Time", ylabel = "Population", title = "Lotka-Volterra Simulated (Validation) Data",
      conds_ids = ["cond1, cond2"],
      data_proportion = 1.0,
      )
 savefig(p6, joinpath(plot_dir, "val_fit_$datestring.png"))
 
 
+p7 = plot_hidden_dynamics(peprob, use_measurements = false,
+                    p_est = opt_sol_bfgs[1].u, title = "Estimated Hidden Dynamics (Training Data)",
+                    p_true = gt_p, size = (1000, 500))
+                    
+savefig(p7, joinpath(plot_dir, "hidden_dynamics_$datestring.png"))
+p8 = plot_hidden_dynamics(valpeprob, use_measurements = false,
+                    p_est = opt_sol_bfgs[1].u, title = "Estimated Hidden Dynamics (Validation Data)",
+                    p_true = gt_p, size = (1000, 500))
+
+savefig(p8, joinpath(plot_dir, "hidden_dynamics_val_$datestring.png"))
 
 using Dates
 date_str = Dates.format(now(), "yyyy-mm-dd_HH-MM-SS")

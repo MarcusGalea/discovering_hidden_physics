@@ -25,7 +25,7 @@ if !isdir(plot_dir)
     mkdir(plot_dir)
 end
 
-alpha = 1e-7 #0.0#
+alpha = 0.#1e-10 #0.0#
 l1_ratio = 0.0
 random_sampling_percentage = 0.2
 sampling_percentage = 0.2   
@@ -55,7 +55,7 @@ plot(trainpeprob; included_plots = [:data, :model],
      )
 
 
-n_runs = 10 # number of runs for the ensemble
+n_runs = 1 # number of runs for the ensemble
 # max_trials = 10 
 # sampling_percentage = 0.2
 gt_p = init_params(hmodel)
@@ -68,10 +68,11 @@ initp_samples = init_params(hmodel, n = n_runs, lb = lb, ub = ub)
 
 
 opt_prob = Optimization.EnsembleProblem(trainpeprob; initp_samples = initp_samples,)
-opt_sol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = 1e-1, n_partitions = 3, initial_stepnorm = 1e-4), EnsembleSerial(),
+opt_sol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = 1e-1, n_partitions = 10, initial_stepnorm = 1e-4), EnsembleSerial(),
                             trajectories = n_runs,
                                 maxiters = maxiters,
                                 maxiter_BFGS = 300,
+                                exponential_decay = true,
                                 #  show_trace = true, show_every = 10,
                                 callback = (state, l) -> callback(state, l; trace = trace))
 
@@ -243,3 +244,123 @@ end
 
 hypertune_res = HyperTuning.optimize(hypertuning_objective, scenario)
 
+
+# histories = hypertune_res.status.history
+# using DataFrames
+# df = DataFrame(histories)
+# #create new columns for each hyperparameter
+# n = size(df, 1)
+# df_new = DataFrame(lr_exponent = zeros(n),
+#                    alpha_exponent = zeros(n),
+#                    n_nodes_exponent = zeros(Int, n),
+#                    n_h_layer = zeros(Int, n),
+#                    performance = zeros(n),
+#                    )
+# #unpack the value column (it is a dict), an make every key in dict a column
+# for (i, row) in enumerate(eachrow(df))
+#     for (k, v) in row[:values]
+#         df_new[i, k] = v
+#         df_new[i, :performance] = row[:performance]
+#     end
+# end
+# #sort dataframe by lr_exponent, then alpha_exponent, then n_h_layer, then n_nodes_exponent
+
+# sort!(df_new, [:lr_exponent, :alpha_exponent,  :n_nodes_exponent, :n_h_layer])
+
+# df_new = df_new[df_new.lr_exponent .== -1,:]
+
+# unique([hist.trials[1].values[:lr_exponent] for hist in histories])
+# unique([hist.trials[1].values[:alpha_exponent] for hist in histories])
+# unique([hist.trials[1].values[:n_h_layer] for hist in histories])
+# unique([hist.trials[1].values[:n_nodes_exponent] for hist in histories])
+
+
+
+@unpack lr_exponent, alpha_exponent, n_h_layer, n_nodes_exponent= hypertune_res.best_trial.values
+alpha = 10.0 ^ alpha_exponent
+lr = 10.0 ^ lr_exponent
+n_nodes = 2 ^ n_nodes_exponent
+U = Lux.Chain(
+Lux.Dense(n_species,n_nodes,rbf), [Lux.Dense(n_nodes,n_nodes, rbf) for _ in 1:n_h_layer] , Lux.Dense(n_nodes,n_species)
+)
+
+hmodel = HybridModel(complete(sys_known), U; rng = rng, events = event)
+n_runs = 10
+gt_p = init_params(hmodel)
+maxiters = Int(300/sampling_percentage)
+# # max_dist_from_gt = 0.5
+lb = gt_p*eps(Float64)
+ub = gt_p*eps(Float64) .+ 1.0
+initp_samples = init_params(hmodel, n = n_runs, lb = lb, ub = ub, rng = Random.default_rng(2))
+
+
+trainpeprob = HybridPEProblem(hmodel, obs, train_measurements_exp, u0map; 
+                conditions = ic_vals, random_sampling_percentage = random_sampling_percentage,
+                ens_alg = EnsembleSplitThreads(), l1_ratio = 0.0, alpha = alpha,
+            #    log_transform = false, 
+                force_dtmin = true)
+
+                
+valpeprob = HybridPEProblem(hmodel, obs, test_measurements_exp, ic_vals["cond3"];
+                            conditions = ic_vals,
+                            ens_alg = EnsembleSplitThreads(), l1_ratio = 0.0, alpha = alpha,
+                            force_dtmin = true)
+opt_prob = Optimization.EnsembleProblem(trainpeprob; initp_samples = initp_samples[1:7], adalg = Optimization.AutoForwardDiff(),
+                                        random_sampling_percentage = random_sampling_percentage)
+
+trace = []
+
+callback = create_callback(trainpeprob,  plot_every = 30, report_every = 30, loss_upper_bound = 1e7,
+                       xlabel = "Time", ylabel = "Signal", title = "Octet Simulated Data")
+opt_sol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = lr, n_partitions = 4, initial_stepnorm = 1e-4), EnsembleSerial(),
+                        trajectories = 7,
+                            maxiters = maxiters,
+                            maxiter_BFGS = 0,
+                            callback = (state, l) -> callback(state, l; trace = trace)
+                            )
+best_run = argmin([sol.objective for sol in opt_sol])
+
+trace
+
+using Dates
+plot_dir = joinpath(model_dir, "plots")
+datestring = Dates.format(now(), "yyyy-mm-dd_HH-MM-SS")
+p3 = plot_loss([trace], trainpeprob; val_prob = valpeprob,cutoff = 300,
+         xlabel = "Iteration", ylabel = "Loss", title = "Loss Trace", legend = :topright, yscale = :log10, size = (1000, 500), margin = 5Plots.mm)
+savefig(p3, joinpath(plot_dir, "loss_trace_$datestring.png"))
+display(p3)
+
+p4 = param_trace(trace; ground_truth_values = gt_p.sys, param_idcs = collect(1:20),
+            xlabel = "Iteration", ylabel = "Parameter Value", title = "Parameter Trace",
+            legend = Symbol(:outer, :topleft), markersize = 4, size = (1000, 500), margin = 5Plots.mm)
+savefig(p4, joinpath(plot_dir, "param_trace_$datestring.png"))
+display(p4)
+#show training fit and validation fit
+p_est = trace[end].u
+
+
+p5 = plot(trainpeprob; included_plots = [:data, :model],
+     p = p_est,
+     curve_label = "Estimate",
+     colors = [:blue, :green, :orange, :purple, :magenta, :brown],
+     xlabel = "Time", ylabel = "Population", title = "Lotka-Volterra Simulated (Training) Data",
+     conds_ids = ["cond1, cond2"],
+     data_proportion = 1.0,
+     )
+
+savefig(p5, joinpath(plot_dir, "train_fit_$datestring.png"))
+p6 = plot(valpeprob; included_plots = [:data, :model],
+     p = trace[end].u,
+     curve_label = "Estimate",
+     colors = [:blue, :green, :orange, :purple, :magenta, :brown],
+     xlabel = "Time", ylabel = "Population", title = "Lotka-Volterra Simulated (Validation) Data",
+     conds_ids = ["cond1, cond2"],
+     data_proportion = 1.0,
+     )
+savefig(p6, joinpath(plot_dir, "val_fit_$datestring.png"))
+
+p7 = plot_hidden_dynamics(trainpeprob; use_measurements = false,
+                    p_est = trace[end].u, title = "Estimated Hidden Dynamics (Training Data)",
+                    p_true = trace[end].u, size = (1000, 500))
+
+#plot dynamics

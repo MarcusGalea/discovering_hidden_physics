@@ -782,7 +782,7 @@ end
 return runs
 end
 
-function plot_loss(traces, train_prob; val_prob = nothing, kwargs...)
+function plot_loss(traces, train_prob; val_prob = nothing, cutoff = 1, kwargs...)
     p1 = plot(; xlabel = "Iteration", ylabel = "Loss", title = "Loss Trace", kwargs...)
     for (i, trace) in enumerate(traces)
         iters = collect(1:length(trace))
@@ -791,6 +791,8 @@ function plot_loss(traces, train_prob; val_prob = nothing, kwargs...)
         loss_trace = [train_prob.obj_func(state.u,1.0) for state in trace]
         n_ADAM = sum(ADAM_idcs)
         switch_points = findall([[trace[i].iter < trace[i-1].iter for i in 2:n_ADAM]; false])
+        #any switch points that are smaller than cutoff are removed
+        switch_points = filter(sp -> sp[1] > cutoff, switch_points)
         n_switches = length(switch_points)
         plot!(p1, iters[ADAM_idcs], loss_trace[ADAM_idcs], label = "Train Loss (ADAM)", color = :blue, linewidth = 2)
         plot!(p1, iters[BFGS_idcs], loss_trace[BFGS_idcs], label = "Train Loss (BFGS)", color = :blue, linewidth = 2, linestyle = :dash)
@@ -900,7 +902,7 @@ end
 function plot_hidden_dynamics(peprob::HybridPEProblem;
                             use_measurements = false,
                             p_est = init_params(peprob.model),
-                            p_true = init_params(peprob.model),
+                            p_true = nothing,
                             dt = (peprob.tspan[2] - peprob.tspan[1]) / 200,
                             colors = [:blue, :green, :orange, :purple, :magenta, :brown],
                             xlabel = "Time", ylabel = "Dynamics", title = "Hidden Dynamics of ODE System",
@@ -972,8 +974,11 @@ function param_trace(trace; param_idcs = collect(1:length(trace[1].u)), ground_t
     colors = [:red, :blue, :green, :orange, :purple, :magenta, :brown]
     label = last.(split.(labels(trace[1].u), "."))
     for idx in param_idcs
+        print(idx, ",", ground_truth_values)
         if !isnothing(ground_truth_values)
-            hline!(p1, [ground_truth_values[idx]], label = label[idx].*"_true", color = colors[idx % length(colors) + 1], linestyle = :dash, linewidth = 2, alpha = 0.5)
+            if idx <= length(ground_truth_values)
+                    hline!(p1, [ground_truth_values[idx]], label = label[idx].*"_true", color = colors[idx % length(colors) + 1], linestyle = :dash, linewidth = 2, alpha = 0.5)
+            end
         end
         for (i, state) in enumerate(trace)
             param_matrix[i, idx] = state.u[idx]

@@ -58,3 +58,5 @@ opt_sol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = 1e-2, n_partition
                             maxiter_BFGS = 300,
                            #  show_trace = true, show_every = 10,
                             callback = cb)
+
+

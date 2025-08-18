@@ -85,6 +85,8 @@ function SciMLBase.__solve(prob::OptimizationProblem,
     maxiters = maxiters === nothing ? 300 : maxiters
 
     iters_per_partition = exponential_decay ? exponential_decaying_iters(maxiters, opt.n_partitions, reduction_factor) : [Int(round(maxiters / opt.n_partitions)) for _ in 1:opt.n_partitions]
+    #assert positive
+    @assert all(iters_per_partition .> 0) "All iterations per partition must be positive"
     proportion_per_run = 1.0 / opt.n_partitions
     optprob1 = remake(prob, p = proportion_per_run)
     res1 = nothing

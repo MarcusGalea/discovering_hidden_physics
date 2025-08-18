@@ -4,7 +4,7 @@ include("../../src/hybrid_model.jl")
 include("../../src/polyopt.jl")
 
 using Lux
-
+using KolmogorovArnold
 
 n_species = length(unknowns(sys_known))
 rbf(x) = exp.(-(x.^2))
@@ -14,10 +14,23 @@ U = Lux.Chain(
     Lux.Dense(n_species,n_nodes,rbf), [Lux.Dense(n_nodes,n_nodes, rbf) for _ in 1:n_h_layers] , Lux.Dense(n_nodes,n_species)
 )
 
-hmodel = HybridModel(complete(sys_known), U; rng = rng, events = event)
+
+basis_func = KolmogorovArnold.rbf # rbf, rswaf, iqf (radial basis funcs, reflection switch activation funcs, inverse quadratic funcs)
+normalizer = softsign # sigmoid(_fast), tanh(_fast), softsign
+kan1 = Chain(
+    KDense( n_species, 40, 10; use_base_act = true, basis_func, normalizer),
+    KDense(40, 40, 10; use_base_act = true, basis_func, normalizer),
+    KDense(40,  2, n_species; use_base_act = true, basis_func, normalizer),
+) # 18_490 parameters plus 30 states.
+p_kan, st_kan = Lux.setup(rng, kan1)
+
+hmodel = HybridModel(complete(sys_known), kan1; rng = rng, events = event)
 
 rootdir = dirname(dirname(dirname(@__FILE__)))
-model_dir = joinpath(rootdir , "models", "Hydrolysis", "NN", "seed_$seed")
+model_dir = joinpath(rootdir , "models", "Hydrolysis", "NN", "KAN")
+if !isdir(model_dir)
+    mkdir(model_dir)
+end
 plot_dir = joinpath(model_dir, "plots")
 ### OPTIMIZATION
 #if no plotdir exists, create it
@@ -67,6 +80,8 @@ initp_samples = init_params(hmodel, n = n_runs, lb = lb, ub = ub)
 
 
 
+callback = create_callback(trainpeprob,  plot_every = 30, report_every = 30, loss_upper_bound = 1e7,
+                       xlabel = "Time", ylabel = "Signal", title = "Octet Simulated Data")
 opt_prob = Optimization.EnsembleProblem(trainpeprob; initp_samples = initp_samples,)
 opt_sol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = 1e-1, n_partitions = 10, initial_stepnorm = 1e-4), EnsembleSerial(),
                             trajectories = n_runs,
@@ -246,24 +261,30 @@ hypertune_res = HyperTuning.optimize(hypertuning_objective, scenario)
 
 
 # histories = hypertune_res.status.history
-# using DataFrames
-# df = DataFrame(histories)
-# #create new columns for each hyperparameter
-# n = size(df, 1)
-# df_new = DataFrame(lr_exponent = zeros(n),
-#                    alpha_exponent = zeros(n),
-#                    n_nodes_exponent = zeros(Int, n),
-#                    n_h_layer = zeros(Int, n),
-#                    performance = zeros(n),
-#                    )
-# #unpack the value column (it is a dict), an make every key in dict a column
-# for (i, row) in enumerate(eachrow(df))
-#     for (k, v) in row[:values]
-#         df_new[i, k] = v
-#         df_new[i, :performance] = row[:performance]
-#     end
-# end
-# #sort dataframe by lr_exponent, then alpha_exponent, then n_h_layer, then n_nodes_exponent
+using DataFrames
+df = DataFrame(histories)
+#create new columns for each hyperparameter
+n = size(df, 1)
+df_new = DataFrame(lr_exponent = zeros(n),
+                   alpha_exponent = zeros(n),
+                   n_nodes_exponent = zeros(Int, n),
+                   n_h_layer = zeros(Int, n),
+                   performance = zeros(n),
+                   )
+#unpack the value column (it is a dict), an make every key in dict a column
+for (i, row) in enumerate(eachrow(df))
+    for (k, v) in row[:values]
+        df_new[i, k] = v
+        df_new[i, :performance] = row[:performance]
+    end
+end
+#save df_new to CSV
+save_path = joinpath(model_dir, "hyperparams.csv")
+using CSV
+CSV.write(save_path, df_new)
+#write dataframe to tx
+
+#sort dataframe by lr_exponent, then alpha_exponent, then n_h_layer, then n_nodes_exponent
 
 # sort!(df_new, [:lr_exponent, :alpha_exponent,  :n_nodes_exponent, :n_h_layer])
 
@@ -337,7 +358,7 @@ savefig(p4, joinpath(plot_dir, "param_trace_$datestring.png"))
 display(p4)
 #show training fit and validation fit
 p_est = trace[end].u
-
+k
 
 p5 = plot(trainpeprob; included_plots = [:data, :model],
      p = p_est,

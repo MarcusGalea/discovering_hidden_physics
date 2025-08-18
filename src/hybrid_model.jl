@@ -436,6 +436,7 @@ function simulate_solution(prob::HybridPEProblem, p;
     )
     # Overwrite the initial conditions with the conditions dictionary
     u0_conditions = overwrite_conditions!(u0map, conditions)
+    p = prob.log_transform ? exp.(p) : p # Exponentiate the parameters if log transformation is enabled
     # Create an EnsembleProblem with the initial conditions and parameters
     ens_prob = DifferentialEquations.EnsembleProblem(prob.model, u0_conditions, tspan, p)
     # Solve the EnsembleProblem
@@ -459,7 +460,7 @@ end
 
 function define_loss_function(model::HybridModel, obs::Dict, measurements::DataFrame, u0map; 
                               conditions::Dict = Dict("cond1" => u0map), 
-                              tspan::Tuple = (0.0, maximum(measurements.time)),
+                              tspan::Tuple = (0.0, masximum(measurements.time)),
                               alg = Tsit5(),
                               ens_alg = EnsembleDistributed(),
                               include_plot = false,
@@ -471,6 +472,7 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
                               sensealg = ForwardDiffSensitivity(),
                               force_dtmin = true,
                               random_sampling_percentage = 1.0,
+                              negative_penalty = 0.0,
                               kwargs...
                               )
     # Define
@@ -484,7 +486,7 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
     idx_sim = Dict([cond => i for (i, cond) in enumerate(collect(keys(u0_conditions)))]) #create a map from condition name to ensemble index
     idx_var = Dict([var => i for (i, var) in enumerate(unknowns(model.sys))]) #create a map from variable name to index
     
-    u0_conditions = convert_to_vector_conditions(u0_conditions, idx_sim, model) # Convert the initial conditions to a vector format for the ensemble problem
+    # u0_conditions = convert_to_vector_conditions(u0_conditions, idx_sim, model) # Convert the initial conditions to a vector format for the ensemble problem
     ensemble_prob = EnsembleProblem(model, u0_conditions, tspan)
     max_t_gt = maximum(measurements.time) # Get the maximum time from the measurements
     unique_times = unique(measurements.time)
@@ -505,9 +507,10 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
         elseif second_argument isa Float64
             #if second_argument is a Float64, we assume it's the proportion of data to use for the optimization function
             t_upper_bound = second_argument * max_t_gt
-            ensemble_prob = remake(ensemble_prob, tspan = (0.0, t_upper_bound), prob_func = ensemble_prob.prob_func)
+            # ensemble_prob = remake(ensemble_prob, tspan = (0.0, t_upper_bound), prob_func = ensemble_prob.prob_func)
             measurements_batch = measurements[measurements.time .<= t_upper_bound, :] # Filter measurements to only include those within the time bounds
             unique_times = unique(measurements_batch.time) # Update the unique times based on the filtered measurements
+            ensemble_prob = EnsembleProblem(model, u0_conditions, (0.0, t_upper_bound), p) # Create a new EnsembleProblem with the updated time bounds
         else
             @error "No option for second argument"
         end
@@ -520,10 +523,10 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
                     kwargs...
                     ) #simulate data
 
-                    if prod([SciMLBase.successful_retcode(trajectory) for trajectory in sim]) != 1
-            @warn "Some simulations did not converge. Returning a high loss value."
-            return Inf # Return a high loss value if any simulation did not converge
-        end
+        # if prod([SciMLBase.successful_retcode(trajectory) for trajectory in sim]) != 1
+        #         @warn "Some simulations did not converge. Returning a high loss value."
+        #     return Inf # Return a high loss value if any simulation did not converge
+        # end
         if random_sampling_percentage < 1.0
             # Randomly sample a percentage of the measurements
             n_samples = Int(floor(random_sampling_percentage * size(measurements_batch, 1)))
@@ -540,7 +543,7 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
             entry = measurements_batch[i, :]
             # println("Processing measurement $(i) with simulation ID $(entry.simulation_id) and observable $(entry.obs_id)")
             # println("simulation has sim id $(idx_sim[entry.simulation_id]) and obs id $(obs[entry.obs_id])")
-            @assert isapprox(sim[idx_sim[entry.simulation_id]].t[idx_time[entry.time]], entry.time, atol = 0.1) "The time in the measurement $(entry.time) does not match the simulation time $(sim[idx_sim[entry.simulation_id]].t[idx_time[entry.time]])"
+            # @assert isapprox(sim[idx_sim[entry.simulation_id]].t[idx_time[entry.time]], entry.time, atol = 0.1) "The time in the measurement $(entry.time) does not match the simulation time $(sim[idx_sim[entry.simulation_id]].t[idx_time[entry.time]])"
             meas_value = entry.measurement
             sim_value = obs_val_dict[idx_sim[entry.simulation_id]][obs[entry.obs_id]][idx_time[entry.time]]
             loss += (sim_value - meas_value)^2
@@ -548,6 +551,9 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
         end
         loss /= n
 
+        if negative_penalty > 0.0
+            loss += negative_penalty * sum(x -> x < 0 ? x^2 : 0, p)
+        end
         # Add Lasso and Ridge penalties if specified (Only if the surrogate model is not a NullModel)
         if alpha > 0.0
             loss += alpha * l1_ratio * sum(abs, p.surrogate)  + # Lasso penalty
@@ -823,6 +829,7 @@ end
         p = init_params(peprob.model),
         data_proportion = peprob.model.data_proportion,
         colors = [:blue, :green, :orange, :purple, :magenta, :brown],
+        model_opacity = 1.0,
         curve_label = "fit",
         obs_ids = keys(peprob.observations),
         saveat = (peprob.tspan[2]-peprob.tspan[1]) / 200, # Default saveat is 200 points over the tspan
@@ -878,6 +885,7 @@ end
                             label --> "$cond_id - $(obs_id)_$curve_label"
                             color --> color
                             seriestype --> :line
+                            alpha --> model_opacity # Make the line semi-transparent
                             x_normal, y_normal
                         end
                         if data_proportion < 1.0

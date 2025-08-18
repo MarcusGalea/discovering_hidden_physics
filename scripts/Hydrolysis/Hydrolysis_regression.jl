@@ -6,9 +6,15 @@ include("../../src/polyopt.jl")
 hmodel = HybridModel(complete(sys_known), complete(sys_unknown_gt); rng = rng, events = event)
 
 rootdir = dirname(dirname(dirname(@__FILE__)))
-model_dir = joinpath(rootdir , "models", "enzyme_dynamics", "Reg", "seed_$seed")
+model_dir = joinpath(rootdir , "models", "hydrolysis", "Reg")
 plot_dir = joinpath(model_dir, "plots")
+if !isdir(joinpath(rootdir , "models", "hydrolysis"))
+    mkdir(joinpath(rootdir , "models", "hydrolysis"))
+end
 #make dir if it doesn't exist
+if !isdir(model_dir)
+    mkdir(model_dir)
+end
 if !isdir(plot_dir)
     mkdir(plot_dir)
 end
@@ -30,7 +36,6 @@ trainpeprob = HybridPEProblem(hmodel, obs, train_measurements_exp, u0map;
                    ens_alg = EnsembleSplitThreads(), l1_ratio = l1_ratio, alpha = alpha,
                 #    log_transform = false, 
                    force_dtmin = true)
-
 
 using Dates
 date_str = Dates.format(now(), "yyyy-mm-dd_HH-MM-SS")
@@ -89,7 +94,7 @@ multi_opt_sol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = 1e-1, n_par
 best_run = argmin([sol.objective for sol in multi_opt_sol])
 # multi_opt_sols = []
 trace = []
-callback = create_callback(trainpeprob,  plot_every = 30, report_every = 30, loss_upper_bound = 1e7,
+callback = create_callback(trainpeprob,  plot_every = 50, report_every = 30, loss_upper_bound = 1e7,
                        xlabel = "Time", ylabel = "Signal", title = "Octet Simulated Data")
 # for (i, trace) in enumerate(traces)
 opt_sol = Optimization.solve(remake(opt_prob; u0 = initp_samples[best_run]), ProgressivePolyOpt(lr = 1e-1, n_partitions = 3, initial_stepnorm = 1e-4), EnsembleSerial(),
@@ -136,4 +141,3 @@ p6 = plot(valpeprob; included_plots = [:data, :model],
      )
 savefig(p6, joinpath(plot_dir, "val_fit_$date_str.png"))
 
-p_est = opt_sol.u

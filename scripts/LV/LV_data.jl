@@ -88,7 +88,10 @@ ensemble_prob = EnsembleProblem(prob, prob_func = prob_func)
 sim = solve(ensemble_prob, Tsit5(), EnsembleDistributed(), trajectories = length(initial_conditions), saveat = dt)
 prey_df = [DataFrame(simulation_id = "cond$(i)", obs_id = "prey_o", time = timedata[sample_idcs], measurement = sim[i][sample_idcs][1,:].+noise.*randn(rng, sample_size),) for i in 1:length(initial_conditions)]
 predator_df = [DataFrame(simulation_id = "cond$(i)", obs_id = "predator_o", time = timedata[sample_idcs], measurement = sim[i][sample_idcs][2,:].+noise.*randn(rng, sample_size),) for i in 1:length(initial_conditions)]
-measurements = vcat(prey_df..., predator_df...)
+total_df = [DataFrame(simulation_id = "cond$(i)", obs_id = "total_o", time = timedata[sample_idcs], measurement = sim[i][sample_idcs][z]) for i in 1:length(initial_conditions)]
+measurements = vcat(prey_df..., predator_df..., total_df...)
+
+
 #plot dataframe
 label = [x]
 colors = [:blue, :green, :orange, :purple, :magenta, :brown]
@@ -110,6 +113,7 @@ train_measurements = measurements[train_idcs, :]
 test_measurements = measurements[test_idcs, :]
 
 obs = Dict("prey_o" => x, "predator_o" => y)
+obs = Dict(["total_o" => z])
 u0map = Dict([x => 40.0, y => 9.0])
 ic_vals = Dict(["cond$i" => Dict([var => ic[j] for (j, var) in enumerate(unknowns(sys))]) for (i, ic) in enumerate(initial_conditions[1:n_initial_conditions])])
 included_exp = (df) -> reduce(.|, [(df.simulation_id .== "cond$i") .& (df.obs_id .== obsvar)

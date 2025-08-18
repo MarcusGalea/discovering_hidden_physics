@@ -69,6 +69,7 @@ df = unique(df)
 
 octet_model,u0_constraints = ReactionNetworks.one_to_N_octet_model(N=3, hydrolysis=false, bs_independence=true)
 octet_odesys = convert(ODESystem, octet_model.model)
+
 @unpack E, S_1, ES_1, S_2, ES_2, S_3, ES_3 = octet_odesys
 #
 @independent_variables t
@@ -120,6 +121,20 @@ weight_map = Dict([
     w_ES_3 => 0.0
 ])
 
+#combine weight_map with k_map to one dict
+params_map = Dict(
+    k_map...,
+    weight_map...
+)
+
+
+params = parameters(octet_odesys)
+#remove s_1_0 from params
+params = filter(p -> !occursin("s_1_0", string(p)), params)
+params = filter(p -> !occursin("s_2_0", string(p)), params)
+params = filter(p -> !occursin("s_3_0", string(p)), params)
+params = [params; octet_model.weights]
+@named odesys2 = ODESystem(octet_odesys.eqs, octet_odesys.t, unknowns(octet_odesys), params, observed = response, defaults = params_map)
 
 obs = Dict("signal" => y)
 
@@ -151,7 +166,8 @@ test_measurements = df[test_idcs, :]
 sampling_percentage = 0.1
 
 known_eqs = Equation[] #none are known for sure
-@named empty_sys = ODESystem(known_eqs, t, unknowns(octet_odesys), octet_model.weights[1:end], observed = response, defaults = weight_map)
+# @named empty_sys = ODESystem(known_eqs, t, unknowns(octet_odesys), octet_model.weights[1:end], observed = response, defaults = weight_map)
+@named empty_sys_2 = ODESystem(known_eqs, t, unknowns(octet_odesys), [])
 n_species = length(unknowns(octet_odesys))
 rbf(x) = exp.(-(x.^2))
 
@@ -161,6 +177,23 @@ U = Lux.Chain(
     Lux.Dense(n_species,n_nodes,rbf), [Lux.Dense(n_nodes,n_nodes, rbf) for _ in 1:n_h_layers] , Lux.Dense(n_nodes,n_species)
 )
 
+rbf(x) = exp.(-(x.^2))
+n_nodes = 32
+n_h_layers = 3
+U = Lux.Chain(
+    Lux.Dense(n_species,n_nodes,rbf), [Lux.Dense(n_nodes,n_nodes, rbf) for _ in 1:n_h_layers] , Lux.Dense(n_nodes,n_species)
+)
+
+
+basis_func = KolmogorovArnold.rbf # rbf, rswaf, iqf (radial basis funcs, reflection switch activation funcs, inverse quadratic funcs)
+normalizer = softsign # sigmoid(_fast), tanh(_fast), softsign
+kan1 = Chain(
+    KDense( n_species, 40, 10; use_base_act = true, basis_func, normalizer),
+    KDense(40, 40, 10; use_base_act = true, basis_func, normalizer),
+    KDense(40,  2, n_species; use_base_act = true, basis_func, normalizer),
+) # 18_490 parameters plus 30 states.
+
+
 # train_measurements_exp = train_measurements#[train_measurements.simulation_id .== "A1", :]
 train_measurements_exp = train_measurements
 # Dissociation event
@@ -169,7 +202,7 @@ affect!(integrator) = integrator.u[1] = 0.0*integrator.u[1] # Set the concentrat
 dcb = DiscreteCallback(diss_condition, affect!)
 event = Dict(:callback => dcb, :tstops => [diss_time]) # Define the event
 
-hmodel = HybridModel(complete(empty_sys), complete(octet_odesys), events = event)
+hmodel = HybridModel(complete(odesys2),U, events = event)
 trainpeprob = HybridPEProblem(hmodel, obs, train_measurements_exp, u0map; 
                    conditions = ic_vals, random_sampling_percentage = sampling_percentage, log_transform = false,
                    ens_alg = EnsembleSplitThreads(), l1_ratio = 0.0, alpha = 0.0, negative_penalty = 1e5,
@@ -184,8 +217,8 @@ gt_p = init_params(hmodel)
 trainpeprob.obj_func(gt_p, 1.0)
 
 
-gt_p.surrogate[:ka_1] = k_vals[1]
-gt_p.surrogate[:kd_1] = k_vals[2]
+# gt_p.surrogate[:ka_1] = k_vals[1]
+# gt_p.surrogate[:kd_1] = k_vals[2]
 gt_p.surrogate[:ka_2] =0.0# k_vals[3]
 gt_p.surrogate[:kd_2] = 0.0#*k_vals[4]
 gt_p.surrogate[:ka_3] = 0.0#*k_vals[5]
@@ -199,6 +232,8 @@ lb = gt_p*eps(Float64)
 ub = gt_p*eps(Float64) .+ 1.0
 initp_samples = init_params(hmodel, n = n_runs, lb = lb, ub = ub, rng = Random.default_rng(0))
 
+gt_p.sys = multi_opt_sol[1].u.sys
+
 plot(trainpeprob; included_plots = [:data, :model],
      p = gt_p,
      curve_label = "Initial Guess",
@@ -211,8 +246,8 @@ ForwardDiff.gradient((p) -> trainpeprob.obj_func(p, 1.0), gt_p)
 opt_prob = Optimization.EnsembleProblem(trainpeprob; initp_samples = gt_p, adalg = Optimization.AutoForwardDiff(),
                                          random_sampling_percentage = sampling_percentage)
 
-trace = Any[]
-callback = create_callback(trainpeprob,  plot_every =1, report_every = 10, loss_upper_bound = 1e7,
+trace_backup3 = Any[]
+callback = create_callback(trainpeprob,  plot_every =50, report_every = 20, loss_upper_bound = 1e7,
                        xlabel = "Time", ylabel = "Signal", title = "Octet Simulated Data")
 multi_opt_sol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = 1e-5 , n_partitions = 1), EnsembleThreads(), 
                             trajectories = 1,
@@ -220,7 +255,7 @@ multi_opt_sol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = 1e-5 , n_pa
                             maxiters = maxiters,
                             maxiter_BFGS = 400,
                            #  show_trace = true, show_every = 10,
-                            callback = (state, l) -> callback(state, l; trace = trace))
+                            callback = (state, l) -> callback(state, l; trace = trace_backup2))
 
 trace_backup = []
 # opt_sol = Optimization.solve(
@@ -236,10 +271,12 @@ opt_sol = Optimization.solve(
 using JLD2
 using Dates
 datestring = Dates.format(now(), "yyyy-mm-dd_HH-MM-SS")
-
+# trace_tmp = trace
+# p_est = multi_opt_sol[1].u
+# jldsave(joinpath(plots_dir, "p_est_$datestring.jld2"); p_est)
 # jldsave(joinpath(plots_dir, "trace_backup_$datestring.jld2"); trace_backup)
 #load trace
-trace = Any[]
+# trace = Any[]
 
 # trace = load(joinpath(plots_dir, "trace_2025-08-15-07-37.jld2"))["trace"]
 # jldsave(joinpath(plots_dir, "trace_$datestring.jld2"); trace)
@@ -260,7 +297,7 @@ savefig(p4, joinpath(plots_dir, "param_trace_.png"))
 
 
 p5 = plot(trainpeprob; included_plots = [:data, :model],
-     p = opt_sol[1].u#trace[end].u,
+     p = opt_sol.u#trace[end].u,
      )
 savefig(p5, joinpath(plots_dir, "train_peprob_fit_$datestring.png"))
 

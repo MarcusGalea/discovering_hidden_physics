@@ -33,7 +33,7 @@ The implementation is centered around Julia and the SciML ecosystem, with experi
 - [src/polyopt.jl](src/polyopt.jl): Optimization helpers for polynomial/sparse model fitting.
 - [src/plot_functions.jl](src/plot_functions.jl): Plotting utilities used across experiments.
 ## High level diagram of core package 
-[](https://github.com/MarcusGalea/discovering_hidden_physics/tree/main/plots/framework.JPG)
+![framework](https://github.com/MarcusGalea/discovering_hidden_physics/blob/main/plots/framework.JPG)
 
 # Experiments and scripts
 
@@ -43,8 +43,8 @@ The implementation is centered around Julia and the SciML ecosystem, with experi
 - [scripts/structural_identifiability](scripts/structural_identifiability): Notebooks for identifiability analysis.
 - [scripts/testing.jl](scripts/testing.jl): Early integrated testing/prototyping script.
 ## Some plots showing results from the experiments 
-[](https://github.com/MarcusGalea/discovering_hidden_physics/tree/main/models/Hydrolysis/Reg/plots/loss_trace_2025-08-15_12-00-54.png)
-[](https://github.com/MarcusGalea/discovering_hidden_physics/tree/main/models/Hydrolysis/Reg/plots/param_trace_2025-08-15_12-00-54.png)
+![Loss Trace](https://github.com/MarcusGalea/discovering_hidden_physics/blob/main/models/Hydrolysis/Reg/plots/loss_trace_2025-08-15_12-00-54.png)
+![Parameter Trace](https://github.com/MarcusGalea/discovering_hidden_physics/blob/main/models/Hydrolysis/Reg/plots/param_trace_2025-08-15_12-00-54.png)
 
 
 

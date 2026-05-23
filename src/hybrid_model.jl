@@ -824,86 +824,86 @@ end
 
 
 
-""" Plotting Recipe """
-@recipe function f(peprob::HybridPEProblem; included_plots = [:data, :model],
-        p = init_params(peprob.model),
-        data_proportion = peprob.model.data_proportion,
-        colors = [:blue, :green, :orange, :purple, :magenta, :brown],
-        model_opacity = 1.0,
-        curve_label = "fit",
-        obs_ids = keys(peprob.observations),
-        saveat = (peprob.tspan[2]-peprob.tspan[1]) / 200, # Default saveat is 200 points over the tspan
-        cond_ids = sort(collect(keys(peprob.conditions))),
-        opacity = 0.33,
-        )
+# """ Plotting Recipe """
+# @recipe function f(peprob::HybridPEProblem; included_plots = [:data, :model],
+#         p = init_params(peprob.model),
+#         data_proportion = peprob.model.data_proportion,
+#         colors = [:blue, :green, :orange, :purple, :magenta, :brown],
+#         model_opacity = 1.0,
+#         curve_label = "fit",
+#         obs_ids = keys(peprob.observations),
+#         saveat = (peprob.tspan[2]-peprob.tspan[1]) / 200, # Default saveat is 200 points over the tspan
+#         cond_ids = sort(collect(keys(peprob.conditions))),
+#         opacity = 0.33,
+#         )
 
-    t_cutoff = data_proportion * peprob.tspan[2] # Cutoff time for the data proportion
-    if :model in included_plots
-        sim = simulate_solution(peprob, p; saveat = saveat)
-    end
+#     t_cutoff = data_proportion * peprob.tspan[2] # Cutoff time for the data proportion
+#     if :model in included_plots
+#         sim = simulate_solution(peprob, p; saveat = saveat)
+#     end
 
-    idx_sim = Dict([cond => i for (i, cond) in enumerate(cond_ids)]) #create a map from condition name to ensemble index
+#     idx_sim = Dict([cond => i for (i, cond) in enumerate(cond_ids)]) #create a map from condition name to ensemble index
 
-        for (i, cond_id) in enumerate(cond_ids)
-            for (j, obs_id) in enumerate(obs_ids)
-                # Filter measurements for the current condition and observation ID
-                color = colors[mod1(i + (j-1)*length(obs_ids), length(colors))]
+#         for (i, cond_id) in enumerate(cond_ids)
+#             for (j, obs_id) in enumerate(obs_ids)
+#                 # Filter measurements for the current condition and observation ID
+#                 color = colors[mod1(i + (j-1)*length(obs_ids), length(colors))]
 
-                if :data in included_plots
-                    meas = peprob.measurements[peprob.measurements.obs_id .== obs_id .&& 
-                                                peprob.measurements.simulation_id .== cond_id, :]
-                    if !isempty(meas)
+#                 if :data in included_plots
+#                     meas = peprob.measurements[peprob.measurements.obs_id .== obs_id .&& 
+#                                                 peprob.measurements.simulation_id .== cond_id, :]
+#                     if !isempty(meas)
 
-                        x = meas.time
-                        y = meas.measurement
-                        x_normal = x[x .<= t_cutoff] # Filter x values to only include those within the cutoff time
-                        y_normal = y[x .<= t_cutoff] # Filter y values to only include those within the cutoff time
-                        @series begin
-                            label --> "$cond_id - $obs_id"
-                            color --> color
-                            seriestype --> :scatter
-                            x_normal, y_normal
-                        end
-                        if data_proportion < 1.0
-                            x_opaque = x[x .> t_cutoff]
-                            y_opaque = y[x .> t_cutoff]
-                            @series begin
-                                label --> ""
-                                color --> color
-                                seriestype --> :scatter
-                                alpha --> opacity # Make the points semi-transparent
-                                x_opaque, y_opaque
-                            end
-                        end
-                    end
-                    if :model in included_plots
-                        x = sim[idx_sim[cond_id]].t
-                        y = sim[idx_sim[cond_id]][peprob.observations[obs_id]]
-                        x_normal = x[x .<= t_cutoff] # Filter x values to only include those within the cutoff time
-                        y_normal = y[x .<= t_cutoff] # Filter y values to only include those within the cutoff time
-                        @series begin
-                            label --> "$cond_id - $(obs_id)_$curve_label"
-                            color --> color
-                            seriestype --> :line
-                            alpha --> model_opacity # Make the line semi-transparent
-                            x_normal, y_normal
-                        end
-                        if data_proportion < 1.0
-                            x_opaque = x[x .> t_cutoff]
-                            y_opaque = y[x .> t_cutoff]
-                            @series begin
-                                label --> ""
-                                color --> color
-                                seriestype --> :line
-                                alpha --> opacity # Make the line semi-transparent
-                                x_opaque, y_opaque
-                            end
-                        end
-                    end
-                end
-            end
-        end
-end
+#                         x = meas.time
+#                         y = meas.measurement
+#                         x_normal = x[x .<= t_cutoff] # Filter x values to only include those within the cutoff time
+#                         y_normal = y[x .<= t_cutoff] # Filter y values to only include those within the cutoff time
+#                         @series begin
+#                             label --> "$cond_id - $obs_id"
+#                             color --> color
+#                             seriestype --> :scatter
+#                             x_normal, y_normal
+#                         end
+#                         if data_proportion < 1.0
+#                             x_opaque = x[x .> t_cutoff]
+#                             y_opaque = y[x .> t_cutoff]
+#                             @series begin
+#                                 label --> ""
+#                                 color --> color
+#                                 seriestype --> :scatter
+#                                 alpha --> opacity # Make the points semi-transparent
+#                                 x_opaque, y_opaque
+#                             end
+#                         end
+#                     end
+#                     if :model in included_plots
+#                         x = sim[idx_sim[cond_id]].t
+#                         y = sim[idx_sim[cond_id]][peprob.observations[obs_id]]
+#                         x_normal = x[x .<= t_cutoff] # Filter x values to only include those within the cutoff time
+#                         y_normal = y[x .<= t_cutoff] # Filter y values to only include those within the cutoff time
+#                         @series begin
+#                             label --> "$cond_id - $(obs_id)_$curve_label"
+#                             color --> color
+#                             seriestype --> :line
+#                             alpha --> model_opacity # Make the line semi-transparent
+#                             x_normal, y_normal
+#                         end
+#                         if data_proportion < 1.0
+#                             x_opaque = x[x .> t_cutoff]
+#                             y_opaque = y[x .> t_cutoff]
+#                             @series begin
+#                                 label --> ""
+#                                 color --> color
+#                                 seriestype --> :line
+#                                 alpha --> opacity # Make the line semi-transparent
+#                                 x_opaque, y_opaque
+#                             end
+#                         end
+#                     end
+#                 end
+#             end
+#         end
+# end
 
 
 

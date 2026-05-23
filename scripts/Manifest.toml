@@ -2,7 +2,7 @@
 
 julia_version = "1.11.5"
 manifest_format = "2.0"
-project_hash = "03bef2fd973502c3ecf8cbb8c592dd0eb8d623de"
+project_hash = "b4f0ef8dd58a3d41db05c5b6a85dfb49cf711225"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "e2478490447631aedba0823d4d7a80b2cc8cdb32"
@@ -350,6 +350,12 @@ git-tree-sha1 = "deddd8725e5e1cc49ee205a1964256043720a6c3"
 uuid = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 version = "0.10.15"
 
+[[deps.CUDA_Driver_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "TOML"]
+git-tree-sha1 = "23c51e2c9bb36be09c3f10f92d0b9cc294e1bc5e"
+uuid = "4ee394cb-3365-5eb0-8335-949819d2adfc"
+version = "13.2.1+3"
+
 [[deps.Cairo_jll]]
 deps = ["Artifacts", "Bzip2_jll", "CompilerSupportLibraries_jll", "Fontconfig_jll", "FreeType2_jll", "Glib_jll", "JLLWrappers", "LZO_jll", "Libdl", "Pixman_jll", "Xorg_libXext_jll", "Xorg_libXrender_jll", "Zlib_jll", "libpng_jll"]
 git-tree-sha1 = "fde3bf89aead2e723284a8ff9cdf5b551ed700e8"
@@ -427,12 +433,6 @@ deps = ["InteractiveUtils", "UUIDs"]
 git-tree-sha1 = "062c5e1a5bf6ada13db96a4ae4749a4c2234f521"
 uuid = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
 version = "1.3.9"
-
-[[deps.CodecInflate64]]
-deps = ["TranscodingStreams"]
-git-tree-sha1 = "d981a6e8656b1e363a2731716f46851a2257deb7"
-uuid = "6309b1aa-fc58-479c-8956-599a07234577"
-version = "0.1.3"
 
 [[deps.CodecZlib]]
 deps = ["TranscodingStreams", "Zlib_jll"]
@@ -845,12 +845,6 @@ deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.6.0"
 
-[[deps.DrWatson]]
-deps = ["Dates", "FileIO", "JLD2", "LibGit2", "MacroTools", "Pkg", "Random", "Requires", "Scratch", "UnPack"]
-git-tree-sha1 = "04fccfb2b259ff0bc5799e7a9c3965258a001b4d"
-uuid = "634d3b9d-ee7a-5ddf-bec9-22491ea816e1"
-version = "2.19.0"
-
 [[deps.DualNumbers]]
 deps = ["Calculus", "NaNMath", "SpecialFunctions"]
 git-tree-sha1 = "529659dbc1680f7474aa88174608ee174239e96c"
@@ -956,6 +950,11 @@ git-tree-sha1 = "27415f162e6028e81c72b82ef756bf321213b6ec"
 uuid = "e2ba6199-217a-4e67-a87a-7c52f15ade04"
 version = "0.1.10"
 
+[[deps.ExpressionExplorer]]
+git-tree-sha1 = "5f1c005ed214356bbe41d442cc1ccd416e510b7e"
+uuid = "21656369-7473-754a-2065-74616d696c43"
+version = "1.1.4"
+
 [[deps.ExproniconLite]]
 git-tree-sha1 = "c13f0b150373771b0fdc1713c97860f8df12e6c2"
 uuid = "55351af7-c7e9-48d6-89ff-24e801d99491"
@@ -980,12 +979,6 @@ version = "1.7.1"
     IncompleteLU = "40713840-3770-5561-ab4c-a76e7d0d7895"
     LinearSolve = "7ed4a6bd-45f5-4d41-b270-4a48e9bafcae"
     Pardiso = "46dd5b70-b6fb-5a00-ae2d-e8fea33afaf2"
-
-[[deps.EzXML]]
-deps = ["Printf", "XML2_jll"]
-git-tree-sha1 = "680a39c9aadce7c721b68d979e66dc65d2021aa6"
-uuid = "8f5d6c58-4d21-5cfd-889c-e3ad7ee6a615"
-version = "1.2.2"
 
 [[deps.FFMPEG]]
 deps = ["FFMPEG_jll"]
@@ -1393,11 +1386,6 @@ version = "1.4.4"
     [deps.InlineStrings.weakdeps]
     ArrowTypes = "31f734f8-188a-4ce0-8406-c8a06bd891cd"
     Parsers = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
-
-[[deps.InputBuffers]]
-git-tree-sha1 = "e5392ea00942566b631e991dd896942189937b2f"
-uuid = "0c81fc1b-5583-44fc-8770-48be1e1cca08"
-version = "1.1.1"
 
 [[deps.IntegerMathUtils]]
 git-tree-sha1 = "b8ffb903da9f7b8cf695a8bead8e01814aa24b30"
@@ -1878,12 +1866,6 @@ git-tree-sha1 = "4ef1c538614e3ec30cb6383b9eb0326a5c3a9763"
 uuid = "6f1432cf-f94c-5a45-995e-cdbf5db27b0b"
 version = "3.3.0"
 
-[[deps.LsqFit]]
-deps = ["Distributions", "ForwardDiff", "LinearAlgebra", "NLSolversBase", "Printf", "StatsAPI"]
-git-tree-sha1 = "f386224fa41af0c27f45e2f9a8f323e538143b43"
-uuid = "2fda8390-95c7-5789-9bda-21331edee243"
-version = "0.15.1"
-
 [[deps.Lux]]
 deps = ["ADTypes", "Adapt", "ArgCheck", "ArrayInterface", "ChainRulesCore", "Compat", "ConcreteStructs", "DiffResults", "DispatchDoctor", "EnzymeCore", "FastClosures", "ForwardDiff", "Functors", "GPUArraysCore", "LinearAlgebra", "LuxCore", "LuxLib", "MLDataDevices", "MacroTools", "Markdown", "NNlib", "Optimisers", "Preferences", "Random", "Reexport", "SIMDTypes", "Setfield", "Static", "StaticArraysCore", "Statistics", "WeightInitializers"]
 git-tree-sha1 = "9f081e4adc791fea3288e065b8266f60019aa3ad"
@@ -1926,6 +1908,7 @@ deps = ["Compat", "DispatchDoctor", "Random"]
 git-tree-sha1 = "48d45736aae190b1b41c1db5242fad955f0eff1d"
 uuid = "bb33d45b-7691-41d6-9220-0943567d0623"
 version = "1.2.6"
+weakdeps = ["Adapt", "ArrayInterface", "ChainRulesCore", "EnzymeCore", "Functors", "MLDataDevices", "Reactant", "ReverseDiff", "Setfield", "Tracker"]
 
     [deps.LuxCore.extensions]
     LuxCoreArrayInterfaceReverseDiffExt = ["ArrayInterface", "ReverseDiff"]
@@ -1936,18 +1919,6 @@ version = "1.2.6"
     LuxCoreMLDataDevicesExt = ["Adapt", "MLDataDevices"]
     LuxCoreReactantExt = "Reactant"
     LuxCoreSetfieldExt = "Setfield"
-
-    [deps.LuxCore.weakdeps]
-    Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
-    ArrayInterface = "4fba245c-0d91-5ea0-9b3e-6abc04ee57a9"
-    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
-    EnzymeCore = "f151be2c-9106-41f4-ab19-57ee4f262869"
-    Functors = "d9f16b24-f501-4c13-a1f2-28368ffc5196"
-    MLDataDevices = "7e8f7934-dd98-4c1a-8fe8-92b47a384d40"
-    Reactant = "3c362404-f566-11ee-1572-e11a4b42c853"
-    ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267"
-    Setfield = "efcf1570-3423-57d1-acb7-fd33fddbac46"
-    Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c"
 
 [[deps.LuxLib]]
 deps = ["ArrayInterface", "CPUSummary", "ChainRulesCore", "Compat", "DispatchDoctor", "EnzymeCore", "FastClosures", "ForwardDiff", "Functors", "KernelAbstractions", "LinearAlgebra", "LuxCore", "MLDataDevices", "Markdown", "NNlib", "Polyester", "Preferences", "Random", "Reexport", "Static", "StaticArraysCore", "Statistics"]
@@ -2337,18 +2308,6 @@ git-tree-sha1 = "09b1fe6ff16e6587fa240c165347474322e77cf1"
 uuid = "d8793406-e978-5875-9003-1fc021f44a92"
 version = "0.4.4"
 
-[[deps.OctetData]]
-deps = ["Base64", "DataFrames", "DocStringExtensions", "DrWatson", "EzXML", "Plots", "RecipesBase", "Revise", "Statistics"]
-path = "C:/Users/MGAJ/OneDrive - Danmarks Tekniske Universitet/Novozymes/ReactionNetworkFitting_private/OctetData"
-uuid = "712af822-e0df-4127-a17c-b011b88526dd"
-version = "1.0.0-DEV"
-
-[[deps.OctetDataFitting]]
-deps = ["Base64", "CSV", "Catalyst", "Colors", "DataFrames", "EzXML", "JLD2", "LsqFit", "Plots", "ReactionNetworkFitting", "ReactionNetworks", "RecipesBase", "XLSX", "XML"]
-path = "C:/Users/MGAJ/OneDrive - Danmarks Tekniske Universitet/Novozymes/ReactionNetworkFitting_private/OctetDataFitting"
-uuid = "66103a4d-3bf8-47dd-8561-f71f3145827c"
-version = "1.0.0-DEV"
-
 [[deps.OffsetArrays]]
 git-tree-sha1 = "117432e406b5c023f665fa73dc26e79ec3630151"
 uuid = "6fe1bfb0-de20-5000-8ca7-80f57d26f881"
@@ -2421,16 +2380,12 @@ deps = ["ChainRulesCore", "ConstructionBase", "Functors", "LinearAlgebra", "Rand
 git-tree-sha1 = "131dc319e7c58317e8c6d5170440f6bdaee0a959"
 uuid = "3bd65402-5787-11e9-1adc-39752487f4e2"
 version = "0.4.6"
+weakdeps = ["Adapt", "EnzymeCore", "Reactant"]
 
     [deps.Optimisers.extensions]
     OptimisersAdaptExt = ["Adapt"]
     OptimisersEnzymeCoreExt = "EnzymeCore"
     OptimisersReactantExt = "Reactant"
-
-    [deps.Optimisers.weakdeps]
-    Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
-    EnzymeCore = "f151be2c-9106-41f4-ab19-57ee4f262869"
-    Reactant = "3c362404-f566-11ee-1572-e11a4b42c853"
 
 [[deps.Optimization]]
 deps = ["ADTypes", "ArrayInterface", "ConsoleProgressMonitor", "DocStringExtensions", "LBFGSB", "LinearAlgebra", "Logging", "LoggingExtras", "OptimizationBase", "Printf", "ProgressLogging", "Reexport", "SciMLBase", "SparseArrays", "TerminalLoggers"]
@@ -2701,34 +2656,6 @@ git-tree-sha1 = "f07c06228a1c670ae4c87d1276b92c7c597fdda0"
 uuid = "90014a1f-27ba-587c-ab20-58faa44d9150"
 version = "0.11.35"
 
-[[deps.PEtab]]
-deps = ["ArrayInterface", "CSV", "Catalyst", "ComponentArrays", "DataFrames", "DiffEqCallbacks", "Distributed", "Distributions", "ForwardDiff", "LinearAlgebra", "LinearSolve", "ModelingToolkit", "NonlinearSolve", "OrdinaryDiffEqBDF", "OrdinaryDiffEqRosenbrock", "OrdinaryDiffEqSDIRK", "PreallocationTools", "PrecompileTools", "Printf", "QuasiMonteCarlo", "Random", "ReverseDiff", "RuntimeGeneratedFunctions", "SBMLImporter", "SciMLBase", "Setfield", "StatsBase", "StyledStrings", "Sundials", "YAML"]
-git-tree-sha1 = "70c2704572fd623bba7d188bf748eabc99726598"
-uuid = "48d54b35-e43e-4a66-a5a1-dde6b987cf69"
-version = "3.9.3"
-
-    [deps.PEtab.extensions]
-    PEtabIpoptExtension = ["Ipopt"]
-    PEtabLogDensityProblemsExtension = ["LogDensityProblems", "LogDensityProblemsAD", "Bijectors"]
-    PEtabMCMCChainsExtension = ["MCMCChains"]
-    PEtabOptimExtension = ["Optim"]
-    PEtabOptimizationExtension = ["Optimization"]
-    PEtabPlotsExtension = ["Plots"]
-    PEtabPyCallExtension = ["PyCall"]
-    PEtabSciMLSensitivityExtension = ["SciMLSensitivity"]
-
-    [deps.PEtab.weakdeps]
-    Bijectors = "76274a88-744f-5084-9051-94815aaf08c4"
-    Ipopt = "b6b21f68-93f8-5de0-b562-5493be1d77c9"
-    LogDensityProblems = "6fdf6af0-433a-55f7-b3ed-c6c6e0b8df7c"
-    LogDensityProblemsAD = "996a588d-648d-4e1f-a8f0-a84b347e47b1"
-    MCMCChains = "c7f686f2-ff18-58e9-bc7b-31028e88f75d"
-    Optim = "429524aa-4258-5aef-a3af-852621145aeb"
-    Optimization = "7f7a1694-90dd-40f0-9382-eb1efda571ba"
-    Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
-    PyCall = "438e738f-606a-5dbb-bf0a-cddfbfd45ab0"
-    SciMLSensitivity = "1ed8b502-d754-442c-8d5d-10ac956f44a1"
-
 [[deps.PackageExtensionCompat]]
 git-tree-sha1 = "fb28e33b8a95c4cee25ce296c817d89cc2e53518"
 uuid = "65ce6f38-6b18-4e1d-a461-8949797d7930"
@@ -2964,23 +2891,61 @@ git-tree-sha1 = "c6ec94d2aaba1ab2ff983052cf6a606ca5985902"
 uuid = "e6cf234a-135c-5ec9-84dd-332b85af5143"
 version = "1.6.0"
 
-[[deps.ReactionNetworkFitting]]
-deps = ["Catalyst", "Colors", "CommonSolve", "DifferentialEquations", "Distributions", "DocStringExtensions", "DrWatson", "ForwardDiff", "Optimization", "OptimizationPolyalgorithms", "OrdinaryDiffEqTsit5", "RecipesBase"]
-path = "C:/Users/MGAJ/OneDrive - Danmarks Tekniske Universitet/Novozymes/ReactionNetworkFitting_private/ReactionNetworkFitting"
-uuid = "d5b6f4e0-8938-11ee-b9d1-0242ac120002"
-version = "1.0.0-DEV"
+[[deps.Reactant]]
+deps = ["Adapt", "CEnum", "Downloads", "EnumX", "Enzyme", "EnzymeCore", "Functors", "GPUArraysCore", "HTTP", "LLVMOpenMP_jll", "Libdl", "LinearAlgebra", "OrderedCollections", "PrecompileTools", "Preferences", "Random", "ReactantCore", "Reactant_jll", "ScopedValues", "Scratch", "Sockets", "unzip_jll"]
+git-tree-sha1 = "a29defb0a959631e7215b469eba0e243321e334f"
+uuid = "3c362404-f566-11ee-1572-e11a4b42c853"
+version = "0.2.160"
 
-[[deps.ReactionNetworkImporters]]
-deps = ["Catalyst", "DataStructures", "ModelingToolkit", "SparseArrays", "Symbolics"]
-git-tree-sha1 = "4ccd4d78fe584d83cebf73900c6ecab1410e94a6"
-uuid = "b4db0fb7-de2a-5028-82bf-5021f5cfa881"
-version = "0.16.1"
+    [deps.Reactant.extensions]
+    ReactantAbstractFFTsExt = "AbstractFFTs"
+    ReactantArrayInterfaceExt = "ArrayInterface"
+    ReactantCUDAExt = ["CUDA", "GPUCompiler", "KernelAbstractions", "LLVM"]
+    ReactantDLFP8TypesExt = "DLFP8Types"
+    ReactantFillArraysExt = "FillArrays"
+    ReactantFloat8sExt = "Float8s"
+    ReactantKernelAbstractionsExt = "KernelAbstractions"
+    ReactantMPIExt = "MPI"
+    ReactantNNlibExt = ["NNlib", "Statistics"]
+    ReactantOffsetArraysExt = "OffsetArrays"
+    ReactantOneHotArraysExt = "OneHotArrays"
+    ReactantPythonCallExt = "PythonCall"
+    ReactantRandom123Ext = "Random123"
+    ReactantSpecialFunctionsExt = "SpecialFunctions"
+    ReactantStatisticsExt = "Statistics"
+    ReactantYaoBlocksExt = "YaoBlocks"
 
-[[deps.ReactionNetworks]]
-deps = ["Catalyst", "DataFrames", "Distributions", "DocStringExtensions", "LsqFit", "OctetData", "OrdinaryDiffEqTsit5"]
-path = "C:/Users/MGAJ/OneDrive - Danmarks Tekniske Universitet/Novozymes/ReactionNetworkFitting_private/ReactionNetworks"
-uuid = "2d446f3d-24a4-41ff-8c3c-e6434ed0fedf"
-version = "0.1.0"
+    [deps.Reactant.weakdeps]
+    AbstractFFTs = "621f4979-c628-5d54-868e-fcf4e3e8185c"
+    ArrayInterface = "4fba245c-0d91-5ea0-9b3e-6abc04ee57a9"
+    CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+    DLFP8Types = "f4c16678-4a16-415b-82ef-ed337c5d6c7c"
+    FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b"
+    Float8s = "81dfefd7-55b0-40c6-a251-db853704e186"
+    GPUCompiler = "61eb1bfa-7361-4325-ad38-22787b887f55"
+    KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+    LLVM = "929cbde3-209d-540e-8aea-75f648917ca0"
+    MPI = "da04e1cc-30fd-572f-bb4f-1f8673147195"
+    NNlib = "872c559c-99b0-510c-b3b7-b6c96a88d5cd"
+    OffsetArrays = "6fe1bfb0-de20-5000-8ca7-80f57d26f881"
+    OneHotArrays = "0b1bfda6-eb8a-41d2-88d8-f5af5cad476f"
+    PythonCall = "6099a3de-0909-46bc-b1f4-468b9a2dfc0d"
+    Random123 = "74087812-796a-5b5d-8853-05524746bad3"
+    SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
+    Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+    YaoBlocks = "418bc28f-b43b-5e0b-a6e7-61bbc1a2c1df"
+
+[[deps.ReactantCore]]
+deps = ["ExpressionExplorer", "MacroTools"]
+git-tree-sha1 = "5b9e0fe7fb2cf3794fd96ac32bf2732aa4bb9776"
+uuid = "a3311ec8-5e00-46d5-b541-4f83e724a433"
+version = "0.1.19"
+
+[[deps.Reactant_jll]]
+deps = ["Artifacts", "CUDA_Driver_jll", "JLLWrappers", "LazyArtifacts", "Libdl", "TOML"]
+git-tree-sha1 = "3cd697e9617529342a345e2acbf53aa1f23e95b1"
+uuid = "0192cb87-2b54-54ad-80e0-3be72ad8a3c0"
+version = "0.0.236+0"
 
 [[deps.RealDot]]
 deps = ["LinearAlgebra"]
@@ -3084,28 +3049,6 @@ deps = ["ExprTools", "SHA", "Serialization"]
 git-tree-sha1 = "86a8a8b783481e1ea6b9c91dd949cb32191f8ab4"
 uuid = "7e49a35a-f44a-4d26-94aa-eba1b4ca6b47"
 version = "0.5.15"
-
-[[deps.SBML]]
-deps = ["DocStringExtensions", "IfElse", "Libdl", "SBML_jll", "SparseArrays", "Unitful"]
-git-tree-sha1 = "95a41304024735a61f2d5425265c6e7e75967766"
-uuid = "e5567a89-2604-4b09-9718-f5f78e97c3bb"
-version = "1.6.0"
-
-[[deps.SBMLImporter]]
-deps = ["Catalyst", "ComponentArrays", "DiffEqBase", "JumpProcesses", "ModelingToolkit", "PrecompileTools", "ReactionNetworkImporters", "RuntimeGeneratedFunctions", "SBML", "SciMLBase", "Setfield", "SpecialFunctions"]
-git-tree-sha1 = "bf92c3fecbd9a9634b1c0efcd83d2397b13770a0"
-uuid = "210efffb-c3c8-456d-a807-6f55560b12fe"
-version = "3.0.3"
-weakdeps = ["ForwardDiff"]
-
-    [deps.SBMLImporter.extensions]
-    SBMLImporterForwardDiffExt = ["ForwardDiff"]
-
-[[deps.SBML_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "XML2_jll", "Zlib_jll"]
-git-tree-sha1 = "7567084bd3defc697c168b8b0ab3d28a9bc47648"
-uuid = "bb12108a-f4ef-5f88-8ef3-0b33ff7017f1"
-version = "5.20.1+0"
 
 [[deps.SCCNonlinearSolve]]
 deps = ["CommonSolve", "PrecompileTools", "Reexport", "SciMLBase", "SymbolicIndexingInterface"]
@@ -3466,12 +3409,6 @@ version = "0.4.1"
     [deps.StridedViews.weakdeps]
     CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
     PtrArrays = "43287f4e-b6f4-7ad1-bb20-aadabca52c3d"
-
-[[deps.StringEncodings]]
-deps = ["Libiconv_jll"]
-git-tree-sha1 = "b765e46ba27ecf6b44faf70df40c57aa3a547dcb"
-uuid = "69024149-9ee7-55f6-a4c4-859efe599b68"
-version = "0.3.7"
 
 [[deps.StringManipulation]]
 deps = ["PrecompileTools"]
@@ -3865,18 +3802,6 @@ git-tree-sha1 = "cd1659ba0d57b71a464a29e64dbc67cfe83d54e7"
 uuid = "76eceee3-57b5-4d4a-8e66-0e911cebbf60"
 version = "1.6.1"
 
-[[deps.XLSX]]
-deps = ["Artifacts", "Dates", "EzXML", "Printf", "Tables", "ZipArchives", "ZipFile"]
-git-tree-sha1 = "7fca49e6dbb35b7b7471956c2a9d3d921360a00f"
-uuid = "fdbf4ff8-1666-58a4-91e7-1b58723a45e0"
-version = "0.10.4"
-
-[[deps.XML]]
-deps = ["Mmap", "OrderedCollections"]
-git-tree-sha1 = "9890adc063e92a2ffec7dde44fc3b79238a14176"
-uuid = "72c71f33-b9b6-44de-8c94-c961784809e2"
-version = "0.3.6"
-
 [[deps.XML2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Libiconv_jll", "Zlib_jll"]
 git-tree-sha1 = "b8b243e47228b4a3877f1dd6aee0c5d56db7fcf4"
@@ -4027,24 +3952,6 @@ git-tree-sha1 = "a63799ff68005991f9d9491b6e95bd3478d783cb"
 uuid = "c5fb5394-a638-5e4d-96e5-b29de1b5cf10"
 version = "1.6.0+0"
 
-[[deps.YAML]]
-deps = ["Base64", "Dates", "Printf", "StringEncodings"]
-git-tree-sha1 = "2f58ac39f64b41fb812340347525be3b590cce3b"
-uuid = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
-version = "0.4.14"
-
-[[deps.ZipArchives]]
-deps = ["ArgCheck", "CodecInflate64", "CodecZlib", "InputBuffers", "PrecompileTools", "TranscodingStreams", "Zlib_jll"]
-git-tree-sha1 = "9a08756e326388a9e6c038125aa4686e0467d27b"
-uuid = "49080126-0e18-4c2a-b176-c102e4b3760c"
-version = "2.5.1"
-
-[[deps.ZipFile]]
-deps = ["Libdl", "Printf", "Zlib_jll"]
-git-tree-sha1 = "f492b7fe1698e623024e873244f10d89c95c340a"
-uuid = "a5390f91-8eb1-5f08-bee0-b1d1ffed6cea"
-version = "0.10.1"
-
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
@@ -4163,7 +4070,7 @@ uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
 version = "1.59.0+0"
 
 [[deps.oneTBB_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
+deps = ["Artifacts", "JLLWrappers", "LazyArtifacts", "Libdl"]
 git-tree-sha1 = "d5a767a3bb77135a99e433afe0eb14cd7f6914c3"
 uuid = "1317d2d5-d96f-522e-a858-c73665f53c3e"
 version = "2022.0.0+0"
@@ -4172,6 +4079,12 @@ version = "2022.0.0+0"
 deps = ["Artifacts", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 version = "17.4.0+2"
+
+[[deps.unzip_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "0cd79af876ba6b5f93229d0e2c5455fcdd9930f7"
+uuid = "88f77b66-78eb-5ed0-bc16-ebba0796830d"
+version = "6.0.3+0"
 
 [[deps.x264_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]

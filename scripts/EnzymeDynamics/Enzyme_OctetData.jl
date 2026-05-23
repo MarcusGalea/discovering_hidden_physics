@@ -3,7 +3,7 @@ using Pkg
 Pkg.activate("scripts\\")
 # Pkg.instantiate()
 
-using Revise, Optimization,Optim, OptimizationOptimJL,Catalyst, OptimizationPolyalgorithms, ModelingToolkit,DifferentialEquations,Plots, Lux, PEtab, Random, Distributions
+using Revise, Optimization,Optim, OptimizationOptimJL,Catalyst, OptimizationPolyalgorithms, ModelingToolkit,DifferentialEquations,Plots, Lux, Random, Distributions
 seed = 0 #set seed for reproducibility
 rng = Random.default_rng(seed) #create a random number generator with the seed
 
@@ -11,9 +11,9 @@ rng = Random.default_rng(seed) #create a random number generator with the seed
 ### ENSEMBLE DATA ###
 
 initial_conditions  = [
-    [10.0, 1.0, 0.0],
-    [5.0, 1.0, 0.0],
-    [2.5, 1.0, 0.0], 
+    [10.0, 0.01, 0.0],
+    [5.0, 0.01, 0.0],
+    [2.5, 0.01, 0.0], 
 ]
 
 
@@ -37,7 +37,7 @@ event = Dict(:callback => cb, :tstops => [diss_time]) # Define the event
 odesys = convert(ODESystem, rn)
 #Data setup
 dt = 0.1 # time step
-u0 = [10.0, 1.0, 0.0]
+u0 = [10.0, 0.01, 0.0]
 tspan = (0.0, 10.0)
 p = Dict(:ka => 0.4, 
           :kd => 0.3, 
@@ -63,7 +63,7 @@ train_fraction = 0.8
 n_data = size(sim, 2)
 
 # test_time = timedata[1:round(Int, n_data * train_fraction)]
-noise = 0.02 # noise level for the data
+noise = 0.00 # noise level for the data
 sample_size = length(timedata)
 sample_idcs = rand(rng, 2:n_data, sample_size-1)
 sample_idcs = [1; sample_idcs]
@@ -79,7 +79,7 @@ label = [x for x in 1:length(initial_conditions)]
 colors = [:blue, :green, :orange, :purple, :magenta, :brown]
 plot(sim, legend = :topright, color = hcat(colors...))
 scatter!(measurements.time, measurements.measurement, group = measurements.obs_id.*"_".* measurements.simulation_id, xlabel="Time", ylabel="Population", 
-        title="Lotka-Volterra Model with Sampled Data", legend =:topright, marker = [:circle :star5], color = hcat(colors...), markersize = 2)
+        title="Enzyme Dynamics ", legend =:topright, marker = [:circle :star5], color = hcat(colors...), markersize = 2)
 
 
 # split dataframe into train and test sets
@@ -91,3 +91,14 @@ test_idcs = findall(measurements.simulation_id .== "cond3")
 #save train and test data
 train_measurements = measurements[train_idcs, :]
 test_measurements = measurements[test_idcs, :]
+
+#Create a new dataframe with log transformed time points
+train_measurements_log = deepcopy(train_measurements)
+#remove initial time points (time = 0) to avoid log(0). Do this for all simulation conditions
+train_measurements_log = train_measurements_log[train_measurements_log.time .> 0.1, :]
+train_measurements_log.time = log.(train_measurements_log.time) # add small value to avoid log(0)
+#use only the v measurements for the log transformed data           
+train_measurements_log = train_measurements_log[train_measurements_log.obs_id .== "v", :]
+#plot log transformed data
+scatter(train_measurements_log.time, train_measurements_log.measurement, group = train_measurements_log.simulation_id, xlabel="Log(Time)", ylabel="Population", 
+        title="Enzyme Dynamics (Log Transformed Time)", legend = :topright, marker = [:circle :star5], color = hcat(colors...), markersize = 2)

@@ -178,53 +178,53 @@ end
 
 
 
-"""
-# Function to remove known reactions from the reaction network
-# Arguments:
-- `reaction_searchspace`: The reaction network to search for reactions.
-- `known_reactions`: The known reactions to be removed from the search space.
+# """
+# # Function to remove known reactions from the reaction network
+# # Arguments:
+# - `reaction_searchspace`: The reaction network to search for reactions.
+# - `known_reactions`: The known reactions to be removed from the search space.
+
+# # Returns:
+# - `new_reaction_searchspace`: The reaction network with the known reactions removed.
+# """
+# function remove_known_reactions(reaction_searchspace::ReactionSystem, known_reactions::ReactionSystem)
+
+#     params_to_remove = Num[]
+#     for known_reaction in equations(known_reactions)
+#         # Check if the reaction is in the search space
+#         for reaction in equations(reaction_searchspace)
+#             if isequal(known_reaction.netstoich, reaction.netstoich)
+#                 # Remove the known reaction from the search space
+#                 push!(params_to_remove, reaction.rate)
+#             end
+#         end
+#     end
+#     return remove_params(reaction_searchspace, params_to_remove)
+# end
+
+
+
+# """
+# Remove parameter from the ODE system and return the new system.
+
+# Parameters:
+# - `rn`: The original Catalyst Reaction System.
+# - `params_to_remove`: A parameter to be removed.
 
 # Returns:
-- `new_reaction_searchspace`: The reaction network with the known reactions removed.
-"""
-function remove_known_reactions(reaction_searchspace::ReactionSystem, known_reactions::ReactionSystem)
+# - `new_rn`: The new Reaction System with parameters removed.
+# """
+# function remove_params(rn::ReactionSystem, params_to_remove::Vector{<:Num})
 
-    params_to_remove = Num[]
-    for known_reaction in equations(known_reactions)
-        # Check if the reaction is in the search space
-        for reaction in equations(reaction_searchspace)
-            if isequal(known_reaction.netstoich, reaction.netstoich)
-                # Remove the known reaction from the search space
-                push!(params_to_remove, reaction.rate)
-            end
-        end
-    end
-    return remove_params(reaction_searchspace, params_to_remove)
-end
+#     # Filter reactions where the rate is not in `params_to_remove`
+#     new_reactions = [reaction for reaction in equations(rn) for param_to_remove in params_to_remove if !isequal(reaction.rate, param_to_remove)]
 
+#     # Filter parameters that are not in `param_to_remove`
+#     new_params = [param for param in parameters(rn) for param_to_remove in params_to_remove if !isequal(param, param_to_remove)]
 
-
-"""
-Remove parameter from the ODE system and return the new system.
-
-Parameters:
-- `rn`: The original Catalyst Reaction System.
-- `params_to_remove`: A parameter to be removed.
-
-Returns:
-- `new_rn`: The new Reaction System with parameters removed.
-"""
-function remove_params(rn::ReactionSystem, params_to_remove::Vector{<:Num})
-
-    # Filter reactions where the rate is not in `params_to_remove`
-    new_reactions = [reaction for reaction in equations(rn) for param_to_remove in params_to_remove if !isequal(reaction.rate, param_to_remove)]
-
-    # Filter parameters that are not in `param_to_remove`
-    new_params = [param for param in parameters(rn) for param_to_remove in params_to_remove if !isequal(param, param_to_remove)]
-
-    # Create a new Reaction System with the updated reactions and parameters
-    @named new_rn = ReactionSystem(new_reactions, rn.t, species(rn), new_params)
-end
+#     # Create a new Reaction System with the updated reactions and parameters
+#     @named new_rn = ReactionSystem(new_reactions, rn.t, species(rn), new_params)
+# end
 
 
 

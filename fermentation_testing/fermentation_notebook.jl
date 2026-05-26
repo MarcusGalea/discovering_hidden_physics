@@ -41,25 +41,24 @@ The following is an example of how a fermentation model is adapted as Reaction N
 """
 
 # ╔═╡ 55555555-5555-5555-5555-555555555555
-begin
 fermentation_model = @reaction_network begin
     @parameters begin
         #Initial conditions
         glucose_0 = 130.0   #g/L
 
         #Growth parameters (assumed time unit: hours, concentrations: g/L)
-        μ_DT = 0.35            # 1/h  - death rate of active biomass
+        μ_DT = 0.1            # 1/h  - death rate of active biomass
         μ_L = 0.005            # 1/h  - activation rate (latent -> active)
-        μ_x0 = 0.02            # 1/h  - basal growth rate
+        μ_x0 = 1.0            # 1/h  - basal growth rate
         k_x = 5.0              # g/L  - half-saturation constant (for μ_x denominator)
         μ_SD0 = 0.25           # 1/h  - sloughing/death baseline rate
         μ_glucose_max = 1.2  # 1/h  - max glucose consumption rate
         k_glucose = 12.0       # g/L  - Monod constant for glucose
         μ_metabolite_max = 0.8  # 1/h  - max metabolite effect rate
         k_metabolite = 10.0       # g/L  - Monod constant for metabolite effect
-        μ_DY = 0.001           # (see equation) empirical coeff for diacetyl formation (per g·L⁻¹·h)
-        μ_AB = 0.01            # (see equation) empirical coeff for diacetyl removal (per g·L⁻¹·h)
-        Y_EA = 0.05            # g ethyl_acetate / g biomass - yield (dimensionless)
+        # μ_DY = 0.001           # (see equation) empirical coeff for diacetyl formation (per g·L⁻¹·h)
+        # μ_AB = 0.01            # (see equation) empirical coeff for diacetyl removal (per g·L⁻¹·h)
+        # Y_EA = 0.05            # g ethyl_acetate / g biomass - yield (dimensionless)
         
         # #Temperature parameters 
         ΔH_total = .5       # J/g - total heat generated per g of glucose consumed (exothermic)
@@ -72,7 +71,6 @@ fermentation_model = @reaction_network begin
         O_solubility = 10.0 # g/L - maximum dissolved oxygen concentration at given conditions 
         kla = 0.1            # 1/h - volumetric mass transfer coefficient for oxygen 
     end
-
     @species begin
         #Biomass species
         X_latent(t) = 3.0   # g/L - latent biomass concentration
@@ -82,10 +80,10 @@ fermentation_model = @reaction_network begin
 
     @variables begin
         #Substrate and product concentrations
-        glucose(t) = glucose_0        # g/L
+        glucose(t) = 130        # g/L
         metabolite(t) = 0.0        # g/L
-        ethyl_acetate(t) = 0.0  # g/L
-        diacetyl(t) = 0.0      # g/L
+        # ethyl_acetate(t) = 0.0  # g/L
+        # diacetyl(t) = 0.0      # g/L
 
         #Temperature variables
         jacket_temperature(t) = 4.0       # °C
@@ -111,11 +109,11 @@ fermentation_model = @reaction_network begin
         X_total ~ X_latent + X_active + X_dead
 
         #Growth rates
-        μ_x ~ μ_x0 * (glucose / (k_x))*exp(-(fermentor_temperature - optimal_temperature)^2/(2*sd_temp^2)) # Temperature effect on growth (Gaussian centered at optimal temperature)
+        μ_x ~ μ_x0 * (glucose / (k_x + glucose))*exp(-(fermentor_temperature - optimal_temperature)^2/(2*sd_temp^2)) # Temperature effect on growth (Gaussian centered at optimal temperature)
         μ_SD ~ μ_SD0 * (0.5*glucose_0/(0.5*glucose_0 + metabolite))
         μ_glucose ~ μ_glucose_max * (glucose / (k_glucose + glucose))
         μ_metabolite ~ μ_metabolite_max * (glucose / (k_metabolite + glucose))
-
+ 
         #Feed control logic (simple on/off based on glucose concentration) 
         F_feed ~ feed_on * μ_glucose * X_active
         D(feed_on) ~ 0.0
@@ -123,8 +121,8 @@ fermentation_model = @reaction_network begin
         #Dynamics of products and by-products
         D(glucose) ~ -μ_glucose * X_active + F_feed
         D(metabolite) ~ μ_metabolite * X_active * (1 - metabolite / (0.5 * glucose_0))
-        D(ethyl_acetate) ~ Y_EA * μ_x * X_active
-        D(diacetyl) ~ μ_DY * X_active * glucose - μ_AB * diacetyl * metabolite
+        # D(ethyl_acetate) ~ Y_EA * μ_x * X_active
+        # D(diacetyl) ~ μ_DY * X_active * glucose - μ_AB * diacetyl * metabolite
  
         #Temperature dynamics
         D(coolant_rate) ~ 0.0           # Treat coolant_rate as a control input (constant or time-varying)
@@ -142,9 +140,6 @@ fermentation_model = @reaction_network begin
     μ_DT,   X_active --> X_dead 
     μ_SD,   X_dead --> ∅
 end 
-end
-
-
 
 # ╔═╡ 20ba9764-628d-40ab-8b84-e544cf4cf98a
 md"""
@@ -152,24 +147,14 @@ md"""
 The model is used to model the case using numerical simulation. The fed-batch conditions are imposed onto the model using discrete callback events, which are passed to the solver. 
 """
 
-# ╔═╡ f91d67c9-f04b-45ee-bfac-2361ddcbbd0c
-md"""
-## Visualization
-"""
-
-# ╔═╡ 46902a98-ec63-4c5d-ba9a-6d4a0fd782d8
-md"""
-Initial Glucose Concentration $(@bind glucose_slider Slider(80:1.0:200, default=130, show_value = true)) g/L
-"""
-
 # ╔═╡ f62a7cd0-56f2-11f1-826b-dfd0c109d92f
 begin
 
-@unpack X_active, X_latent, X_dead, X_total, μ_x, μ_SD, μ_glucose, μ_metabolite,glucose_0 = fermentation_model
+@unpack X_active, X_latent, X_dead, X_total, μ_x, μ_SD, μ_glucose, μ_metabolite = fermentation_model
 
 
 
-@named odesys = Catalyst.ode_model(fermentation_model)
+@named odesys = Catalyst.ode_model(fermentation_model)#convert(ODESystem, fermentation_model)
 odesys = structural_simplify(odesys) 
 
 idx_dict = Dict(zip(string.(unknowns(odesys)), 1:length(unknowns(fermentation_model))))
@@ -195,14 +180,25 @@ cb_feed_stop = DiscreteCallback(condition_feed_stop, affect_feed_stop!)
 
 cb_combined = CallbackSet(cb, cb_stop, cb_feed, cb_feed_stop) 
 
-p = Dict(glucose_0 => glucose_slider)
-prob = ODEProblem(odesys, p, (0.0, 150.0), callback=cb_combined, warn_initialize_determined = false)
-sol = solve(prob, Tsit5(), saveat=0.1)      
+
+
+
+pdict = Dict(:μ_x0 => 0.2, :μ_DT => 0.15)
+prob = ODEProblem(odesys, pdict, (0.0, 150.0), callback=cb_combined, warn_initialize_determined = false)
+prob = remake(prob, p = pdict)
+
+sol = solve(prob, Tsit5(), saveat=0.1)   
+
 end
 
-# ╔═╡ bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+# ╔═╡ f91d67c9-f04b-45ee-bfac-2361ddcbbd0c
+md"""
+## Visualization
+"""
+
+# ╔═╡ 9039ed51-5683-4a62-a515-84188e626c6c
 begin
-    sample_times = collect(0.0:1.0:150.0)
+sample_times = collect(0.0:1.0:150.0)
     biomass_times = Set(0.0:24.0:150.0)
     rng = MersenneTwister(42)
 
@@ -211,47 +207,109 @@ begin
 
     observed_24h(t) = any(isapprox(t, τ; atol = 1e-9) for τ in biomass_times)
 
-    df = DataFrame(
-        time = sample_times,
-        X_latent = [observed_24h(t) ? noisy(sol(t, idxs = :X_latent), 0.05, 0.02) : missing for t in sample_times],
-        X_active = [observed_24h(t) ? noisy(sol(t, idxs = :X_active), 0.05, 0.02) : missing for t in sample_times],
-        X_dead = [observed_24h(t) ? noisy(sol(t, idxs = :X_dead), 0.05, 0.02) : missing for t in sample_times],
-        glucose = [observed_24h(t) ? noisy(sol(t, idxs = :glucose), 0.03, 0.05) : missing for t in sample_times],
-        metabolite = [observed_24h(t) ? noisy(sol(t, idxs = :metabolite), 0.03, 0.02) : missing for t in sample_times],
-        ethyl_acetate = [observed_24h(t) ? noisy(sol(t, idxs = :ethyl_acetate), 0.03, 0.02) : missing for t in sample_times],
-        diacetyl = [observed_24h(t) ? noisy(sol(t, idxs = :diacetyl), 0.03, 0.01) : missing for t in sample_times],
-        fermentor_temperature = [noisy(sol(t, idxs = :fermentor_temperature), 0.01, 0.1) for t in sample_times],
-        jacket_temperature = [noisy(sol(t, idxs = :jacket_temperature), 0.01, 0.1) for t in sample_times],
-        F_feed = [noisy(sol(t, idxs = :F_feed), 0.02, 0.01) for t in sample_times]
-    )
+df = DataFrame(
+    time = sample_times,
+    X_latent = [observed_24h(t) ? noisy(sol(t, idxs = :X_latent), 0.05, 0.02) : missing for t in sample_times],
+    X_active = [observed_24h(t) ? noisy(sol(t, idxs = :X_active), 0.05, 0.02) : missing for t in sample_times],
+    X_dead = [observed_24h(t) ? noisy(sol(t, idxs = :X_dead), 0.05, 0.02) : missing for t in sample_times],
+    glucose = [observed_24h(t) ? noisy(sol(t, idxs = :glucose), 0.03, 0.05) : missing for t in sample_times],
+    metabolite = [observed_24h(t) ? noisy(sol(t, idxs = :metabolite), 0.03, 0.02) : missing for t in sample_times],
+    fermentor_temperature = [noisy(sol(t, idxs = :fermentor_temperature), 0.01, 0.1) for t in sample_times],
+    jacket_temperature = [noisy(sol(t, idxs = :jacket_temperature), 0.01, 0.1) for t in sample_times],
+    F_feed = [noisy(sol(t, idxs = :F_feed), 0.02, 0.01) for t in sample_times],
+    coolant_rate = [noisy(sol(t, idxs = :coolant_rate), 0.02, 0.01) for t in sample_times]
+)
+
 
     df.X_total = coalesce.(df.X_latent, 0.0) .+ coalesce.(df.X_active, 0.0) .+ coalesce.(df.X_dead, 0.0)
 
-    p_temperature = plot(sol, idxs = [:fermentor_temperature, :jacket_temperature], labels = hcat(["Fermentor temperature", "Jacket temperature"]...), title = "Temperature", xlabel = "Time (h)", ylabel = "Temperature (°C)", color = [:red :blue])
-    p_feeding = plot(sol, idxs = :F_feed, labels = "Feed rate", title = "Feeding", xlabel = "Time (h)", ylabel = "Feed rate (g/L/h)", color = :green)
-    p_biomass = plot(sol, idxs = [:X_latent, :X_active, :X_dead, X_latent + X_active + X_dead], labels = hcat(["X_latent", "X_active", "X_dead", "Total"]...), title = "Biomass Concentrations", xlabel = "Time (h)", ylabel = "Concentration (g/L)", color = [:orange :green :red :black])
-    p_substrate_products = plot(sol, idxs = [:diacetyl, :metabolite, :ethyl_acetate, :glucose], labels = hcat(["diacetyl", "metabolite", "ethyl_acetate", "glucose"]...), title = "Substrate and Product Concentrations", xlabel = "Time (h)", ylabel = "Concentration (g/L)", color = [:purple :brown :pink :gray])
 
-    p_temperature = scatter!(p_temperature, df.time, df.fermentor_temperature, label = "Fermentor Temperature", color = :red)
+
+    
+    p_temperature = scatter(df.time, df.fermentor_temperature, label = "Fermentor Temperature", color = :red)
     scatter!(p_temperature, df.time, df.jacket_temperature, label = "Jacket Temperature", color = :blue)
-    p_feeding = scatter!(p_feeding, df.time, df.F_feed, label = "Feed Rate", color = :green)
-    p_biomass = scatter!(p_biomass, df.time, df.X_latent, label = "X_latent", color = :orange)
+    p_feeding = scatter(df.time, df.F_feed, label = "Feed Rate", color = :green)
+    p_biomass = scatter(df.time, df.X_latent, label = "X_latent", color = :orange)
     scatter!(p_biomass, df.time, df.X_active, label = "X_active", color = :green)
     scatter!(p_biomass, df.time, df.X_dead, label = "X_dead", color = :red)
     scatter!(p_biomass, df.time, df.X_total, label = "Total Biomass", color = :black)
-    p_substrate_products = scatter!(p_substrate_products, df.time, df.glucose, label = "Glucose", color = :gray)
+    p_substrate_products = scatter(df.time, df.glucose, label = "Glucose", color = :gray)
     scatter!(p_substrate_products, df.time, df.metabolite, label = "Metabolite", color = :brown)
-    scatter!(p_substrate_products, df.time, df.ethyl_acetate, label = "Ethyl Acetate", color = :pink)
-    scatter!(p_substrate_products, df.time, df.diacetyl, label = "Diacetyl", color = :purple)
+    print("Producing data plots")
+end
 
-    final_plot = plot(p_biomass, p_substrate_products, p_temperature, p_feeding, layout = (2, 2), size = (800, 600))
+# ╔═╡ 46902a98-ec63-4c5d-ba9a-6d4a0fd782d8
+md"""
+### Initial Values
+Initial Glucose Concentration $(@bind glucose_slider Slider(0:1.0:260, default=130, show_value = true)) g/L
 
+### Parameters
+*μ_glucose* max glucose consumption rate $(@bind μslider Slider(0.1:0.1:2.0, default = 1.2,show_value = true)) 1/h
+
+Optimal Temperature for growth $(@bind opttemp Slider(1:2:50, default = 25, show_value = true
+)) °C
+"""
+
+# ╔═╡ bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+begin
+
+
+#plot interactive model
+
+    
+    remade_prob = remake(prob, p = Dict(:glucose_0 => glucose_slider, :optimal_temperature => opttemp, :μ_glucose_max => μslider))
+    remade_sol = solve(remade_prob, Tsit5(), saveat=0.1)   
+    
+
+
+    
+    p_biomass_model = plot(remade_sol, idxs = [:X_latent, :X_active, :X_dead, :X_total], labels = hcat(["X_latent", "X_active", "X_dead", "Total"]...), title = "Biomass Concentrations", xlabel = "Time (h)", ylabel = "Concentration (g/L)", color = [:orange :green :red :black])
+    scatter!(p_biomass_model,df.time, df.X_latent, label = "X_latent", color = :orange)
+        scatter!(p_biomass_model, df.time, df.X_active, label = "X_active", color = :green)
+    scatter!(p_biomass_model, df.time, df.X_dead, label = "X_dead", color = :red)
+    scatter!(p_biomass_model, df.time, df.X_total, label = "Total Biomass", color = :black)
+
+
+p_substrate_products_model = plot(remade_sol, idxs = [:metabolite, :glucose], labels = hcat(["metabolite", "glucose"]...), title = "Substrate and Product Concentrations", xlabel = "Time (h)", ylabel = "Concentration (g/L)", color = [:purple :brown :pink :gray])
+    scatter!(p_substrate_products_model,df.time, df.glucose, label = "Glucose", color = :gray)
+    scatter!(p_substrate_products_model, df.time, df.metabolite, label = "Metabolite", color = :brown)
+    p_temperature_model = plot(remade_sol, idxs = [:fermentor_temperature, :jacket_temperature], labels = hcat(["Fermentor T", "Jacket T"]...), title = "Temperature", xlabel = "Time (h)", ylabel = "Temperature (°C)", color = [:red :blue])
+    scatter!(p_temperature_model, df.time, df.fermentor_temperature, label = "Fermentor T data", color = :red)
+    scatter!(p_temperature_model, df.time, df.jacket_temperature, label = "Jacket T data", color = :blue)
+
+    
+    p_feeding_model = plot(remade_sol, idxs = :F_feed, labels = "Feed rate", title = "Feeding", xlabel = "Time (h)", ylabel = "Feed rate (g/L/h)", color = :green)
+    scatter!(p_feeding_model, df.time, df.F_feed, label = "Feed Rate", color = :green)
+    online_plot = plot(p_temperature_model, p_feeding_model, layout = (1,2))
+
+    
+    offline_plot = plot(p_biomass_model, p_substrate_products_model, layout = (1,2))
     @htl("""
     <div class="plot-card">
-    $(final_plot)
+    $(offline_plot)
+    $(online_plot)
     </div>
     """)
 end
+
+# ╔═╡ 022e46fd-3330-4fd6-85c6-9379aae4a842
+# begin
+# p_temperature_model = plot(remade_sol, idxs = [:fermentor_temperature, :jacket_temperature], labels = hcat(["Fermentor T", "Jacket T"]...), title = "Temperature", xlabel = "Time (h)", ylabel = "Temperature (°C)", color = [:red :blue])
+#     scatter!(p_temperature_model, df.time, df.fermentor_temperature, label = "Fermentor T data", color = :red)
+#     scatter!(p_temperature_model, df.time, df.jacket_temperature, label = "Jacket T data", color = :blue)
+
+    
+#     p_feeding_model = plot(remade_sol, idxs = :F_feed, labels = "Feed rate", title = "Feeding", xlabel = "Time (h)", ylabel = "Feed rate (g/L/h)", color = :green)
+#     scatter!(p_feeding_model, df.time, df.F_feed, label = "Feed Rate", color = :green)
+#     online_plot = plot(p_temperature_model, p_feeding_model, layout = (1,2))
+
+#         @htl("""
+#     <div class="plot-card">
+#     $(online_plot)
+#     </div>
+#     """)
+# end
+
 
 # ╔═╡ b541ec8a-52f7-4722-9399-86493939a7a3
 function loadDynamicViewCSS()
@@ -3634,8 +3692,10 @@ version = "1.13.0+0"
 # ╟─20ba9764-628d-40ab-8b84-e544cf4cf98a
 # ╟─f62a7cd0-56f2-11f1-826b-dfd0c109d92f
 # ╟─f91d67c9-f04b-45ee-bfac-2361ddcbbd0c
+# ╟─9039ed51-5683-4a62-a515-84188e626c6c
 # ╟─46902a98-ec63-4c5d-ba9a-6d4a0fd782d8
 # ╟─bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+# ╟─022e46fd-3330-4fd6-85c6-9379aae4a842
 # ╟─b541ec8a-52f7-4722-9399-86493939a7a3
 # ╟─37d04210-86d8-4549-8e0c-e654ca7e5b34
 # ╟─c44dc12b-bbcf-4bd0-a68c-c3b7bc791774

@@ -1,7 +1,7 @@
 # using PEtab
 using DifferentialEquations, Lux, ModelingToolkit, Optimization, 
 SciMLSensitivity,DataFrames, ComponentArrays, 
-LatinHypercubeSampling, MLUtils, Colors, Base, ForwardDiff
+LatinHypercubeSampling, MLUtils, Colors, Base, ForwardDiff, Random
 # using Random
 # import ModelingToolkit:has_observed,observables
 # using Optimization
@@ -21,22 +21,22 @@ import Base: convert
 # using ForwardDiff
 Base.convert(::Type{T}, x::ForwardDiff.Dual)  where T <: Number = x.value
 
-mutable struct NullModel <: ModelingToolkit.AbstractTimeDependentSystem
-    """ A null model that does nothing. Used as a placeholder for surrogate models."""
-    name::String
+# mutable struct NullModel <: ModelingToolkit.System
+#     """ A null model that does nothing. Used as a placeholder for surrogate models."""
+#     name::String
 
-    """ Create a NullModel with a given name."""
-    NullModel(name::String = "NullModel") = new(name)
+#     """ Create a NullModel with a given name."""
+#     NullModel(name::String = "NullModel") = new(name)
 
-    """ Get the parameters of the NullModel. Returns an empty NamedTuple."""
-end
+#     """ Get the parameters of the NullModel. Returns an empty NamedTuple."""
+# end
 
 """ HybridModel is a system that combines an ODE system with a surrogate model (SINDy or neural network)."""
 mutable struct HybridModel
     """ The known underlying ODE system."""
-    sys::ODESystem
-    """ The surrogate model, which can be a normal ODESystem, SINDy model, or a Lux Machine Learning Model."""
-    surrogate::Union{ModelingToolkit.AbstractTimeDependentSystem}#, Lux.Chain}#, PEtab.MLModel}
+    sys::System
+    """ The surrogate model, which can be a normal System, SINDy model, or a Lux Machine Learning Model."""
+    surrogate::Union{ModelingToolkit.System}#, Lux.Chain}#, PEtab.MLModel}
     """ Discrete events that trigger during the simulation."""
     events::Dict
     """ Observables that are computed during the simulation. (Defaults to unknowns of sys)"""
@@ -44,27 +44,27 @@ mutable struct HybridModel
     """ Random number generator for reproducibility."""
     rng ::Random.AbstractRNG
     """ODEFunction for the HybridModel system."""
-    ode_fun::Function
+    ode_fun
     """Machine learning model for the HybridModel system."""
     ml_models::Dict
     """Proportion of data used for modeling (Not smart to have here)"""
     data_proportion::Float64
 
     """ Construct a HybridModel system with a SINDy/ODE surrogate model. """
-    HybridModel(sys::ODESystem, surrogate::T;
+    HybridModel(sys::System, surrogate::T;
                 events::Dict = Dict(), 
                 observables::Vector = has_observed(sys) || has_observed(surrogate) ?  union([observables(sys);observables(surrogate)]) : unknowns(sys), #choose observables from sys or surrogate if they have them. else use state variables
                 rng::Random.AbstractRNG = Random.default_rng(1234),
-                ode_fun::Function = ODEFunction(sys, surrogate; rng = rng),
+                ode_fun= ODEFunction(sys, surrogate; rng = rng),
                 ml_models::Dict = Dict(),
                 data_proportion::Float64 = 1.0
                 ) where 
-                T <: ModelingToolkit.AbstractTimeDependentSystem = 
+                T <: ModelingToolkit.System = 
         new(sys, surrogate, events, observables, rng, ode_fun, ml_models, data_proportion)
 
 
     """   Construct a HybridModel system with a Lux neural network surrogate model."""
-    HybridModel(sys::ODESystem, surrogate::T; 
+    HybridModel(sys::System, surrogate::T; 
                events::Dict = Dict(), 
                observables::Vector = has_observed(sys) || has_observed(surrogate) ?  union([observables(sys);observables(surrogate)]) : unknowns(sys), #choose observables from sys or surrogate if they have them. else use state variables
                rng::Random.AbstractRNG = Random.default_rng(1234),
@@ -76,7 +76,7 @@ mutable struct HybridModel
         new(sys, surrogate, events, observables, rng, ode_fun, ml_models, data_proportion)
 
     # """ Construct a HybridModel system with a PEtab MLModel surrogate model."""
-    # HybridModel(sys::ODESystem, surrogate::T; 
+    # HybridModel(sys::System, surrogate::T; 
     #            events::Dict = Dict(), 
     #            observables::Vector = has_observed(sys) || has_observed(surrogate) ?  union([observables(sys);observables(surrogate)]) : unknowns(sys), #choose observables from sys or surrogate if they have them. else use state variables
     #            rng::Random.AbstractRNG = Random.default_rng(1234),
@@ -130,13 +130,13 @@ function DifferentialEquations.ODEFunction(model::HybridModel)
 end
 
 #create the ODE function for the HybridModel system
-function DifferentialEquations.ODEFunction(sys::ODESystem, surrogate::T; rng = Random.default_rng(1234)) where {T <: Union{ModelingToolkit.AbstractTimeDependentSystem, Lux.Chain}}#, PEtab.MLModel}}
+function DifferentialEquations.ODEFunction(sys::System, surrogate::T; rng = Random.default_rng(1234)) where {T <: Union{ModelingToolkit.System, Lux.Chain}}#, PEtab.MLModel}}
     # Get the derivative function for the ODE system
-    ode_fun! = DifferentialEquations.ODEFunction(sys, unknowns(sys), parameters(sys))
+    ode_fun! = DifferentialEquations.ODEFunction(sys)#, unknowns(sys), parameters(sys))
     # Get the surrogate derivative function
     surrogate_fun! = derivative_function!(surrogate; rng = rng)
 
-    if surrogate isa ModelingToolkit.AbstractTimeDependentSystem
+    if surrogate isa ModelingToolkit.System
         @assert isequal(unknowns(surrogate), unknowns(sys)) "Surrogate model variables are not in the same order as the known system."
     end
     du1 = Any[0.0 for _ in 1:length(unknowns(sys))]
@@ -235,7 +235,7 @@ end
 
 
 ### ODE SYSTEM METHODS ###
-function init_params(sys::ODESystem; randfun = rand, rng = Random.default_rng(1234), n = 1, lb = -ones(length(parameters(sys))), ub = ones(length(parameters(sys))), 
+function init_params(sys::System; randfun = rand, rng = Random.default_rng(1234), n = 1, lb = -ones(length(parameters(sys))), ub = ones(length(parameters(sys))), 
                         generations = 1000, method = :latin_hypercube_sampling, radius = 1.0)
     if n > 1
         # If n > 1, return a vector of sampled Parameters
@@ -249,11 +249,12 @@ function init_params(sys::ODESystem; randfun = rand, rng = Random.default_rng(12
             @error "Unknown sampling method: $method"
         end 
     end
-    if ModelingToolkit.has_defaults(sys) & any([p in keys(ModelingToolkit.get_defaults(sys)) for p in parameters(sys)])
-        defs = ModelingToolkit.get_defaults(sys)
+    params = parameters(sys)
+    if any(ModelingToolkit.hasdefault.(params))# & any([p in keys(ModelingToolkit.getdefault(sys)) for p in parameters(sys)])
+        defs = ModelingToolkit.getdefault.(params)
         # Initialize parameters with defaults (NamedTuple))
         return (; zip(parameters(sys) .|> Symbol, 
-                [defs[p] for p in parameters(sys)])...) # Convert to NamedTuple
+                defs)...) # Convert to NamedTuple
     else
         # If no defaults, return an empty random values
         return (; zip(parameters(sys) .|> Symbol, randfun(rng) for _ in parameters(sys))...)
@@ -262,7 +263,7 @@ end
 
     
 
-function latin_hypercube_sampling(sys::ODESystem, n, 
+function latin_hypercube_sampling(sys::System, n, 
                                 lb = -ones(length(parameters(sys))), 
                                 ub = ones(length(parameters(sys))); 
                                 rng = Random.default_rng(1234),
@@ -273,12 +274,12 @@ function latin_hypercube_sampling(sys::ODESystem, n,
         return [(; zip(parameters(sys) .|> Symbol, scaled_samples[i, :])...) for i in 1:n]
 end
 
-function derivative_function!(sys::ODESystem; rng = Random.default_rng(1234))
-    return DifferentialEquations.ODEFunction(sys, unknowns(sys), parameters(sys))
+function derivative_function!(sys::System; rng = Random.default_rng(1234))
+    return DifferentialEquations.ODEFunction(sys)#, unknowns(sys), parameters(sys))
 end
 
 # @independent_variables t
-function merge_systems(sys::AbstractTimeDependentSystem, surrogate::AbstractTimeDependentSystem)
+function merge_systems(sys::System, surrogate::System)
     # Merge the ODE system and the surrogate model into a single system (Given they are both symbolic systems)
     D = Differential(t)
     #TODO
@@ -343,26 +344,26 @@ end
 #     return []
 # end
 
-### NULL MODEL METHODS ###
-function init_params(model::NullModel; rng = Random.default_rng(1234))
-    # Null model has no parameters (empty NamedTuple)
-    return ()
-end
+# ### NULL MODEL METHODS ###
+# function init_params(model::NullModel; rng = Random.default_rng(1234))
+#     # Null model has no parameters (empty NamedTuple)
+#     return ()
+# end
 
-function derivative_function!(model::NullModel; rng = Random.default_rng(1234))
-    # Null model does nothing, so return a function that does nothing
-    return (du, u, p, t) -> du .= 0.0
-end
+# function derivative_function!(model::NullModel; rng = Random.default_rng(1234))
+#     # Null model does nothing, so return a function that does nothing
+#     return (du, u, p, t) -> du .= 0.0
+# end
 
-function has_observed(model::NullModel)
-    # Null model has no observed quantities
-    return false
-end
+# function has_observed(model::NullModel)
+#     # Null model has no observed quantities
+#     return false
+# end
 
-function observables(model::NullModel)
-    # Null model has no observed quantities
-    return []
-end
+# function observables(model::NullModel)
+#     # Null model has no observed quantities
+#     return []
+# end
 
 import ModelingToolkit: parameters
 
@@ -480,13 +481,14 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
     u0_conditions = overwrite_conditions!(u0map, conditions)
     #sort u0 conditions by keyobs
     included_obs = [in_isequal(obsvar, values(obs)) for obsvar in observables(hmodel.sys)]
-    obseqs = observed(model.sys)[included_obs]
-    obs_funs = Dict([obs_fun.lhs =>eval(build_function(obs_fun.rhs, unknowns(model.sys), parameters(model.sys); expression=Val{false})) for obs_fun in obseqs])
+    # obseqs = observed(model.sys)[included_obs]
+    obseqs = []
+    # obs_funs = Dict([obs_fun.lhs =>eval(build_function(obs_fun.rhs, unknowns(model.sys), parameters(model.sys); expression=Val{false})) for obs_fun in obseqs])
 
     idx_sim = Dict([cond => i for (i, cond) in enumerate(collect(keys(u0_conditions)))]) #create a map from condition name to ensemble index
     idx_var = Dict([var => i for (i, var) in enumerate(unknowns(model.sys))]) #create a map from variable name to index
     
-    # u0_conditions = convert_to_vector_conditions(u0_conditions, idx_sim, model) # Convert the initial conditions to a vector format for the ensemble problem
+    u0_conditions = convert_to_vector_conditions(u0_conditions, idx_sim, model) # Convert the initial conditions to a vector format for the ensemble problem
     ensemble_prob = EnsembleProblem(model, u0_conditions, tspan)
     max_t_gt = maximum(measurements.time) # Get the maximum time from the measurements
     unique_times = unique(measurements.time)
@@ -542,7 +544,7 @@ function define_loss_function(model::HybridModel, obs::Dict, measurements::DataF
         for i in 1:size(measurements_batch, 1)
             entry = measurements_batch[i, :]
             # println("Processing measurement $(i) with simulation ID $(entry.simulation_id) and observable $(entry.obs_id)")
-            # println("simulation has sim id $(idx_sim[entry.simulation_id]) and obs id $(obs[entry.obs_id])")
+            # println("simulation has  sim id $(idx_sim[entry.simulation_id]) and obs id $(obs[entry.obs_id])")
             # @assert isapprox(sim[idx_sim[entry.simulation_id]].t[idx_time[entry.time]], entry.time, atol = 0.1) "The time in the measurement $(entry.time) does not match the simulation time $(sim[idx_sim[entry.simulation_id]].t[idx_time[entry.time]])"
             meas_value = entry.measurement
             sim_value = obs_val_dict[idx_sim[entry.simulation_id]][obs[entry.obs_id]][idx_time[entry.time]]
@@ -725,7 +727,7 @@ end
 
 
 Base.occursin(needle::Num, haystack::Int64) = false # Override occursin for Num types to always return false whenever haystack is an Int64
-function create_unknown_eqs(sys_known::AbstractTimeDependentSystem, unknown_basis::Vector{T}; Ξ = nothing) where T <: Union{Num}
+function create_unknown_eqs(sys_known::System, unknown_basis::Vector{T}; Ξ = nothing) where T <: Union{Num}
     #remove basis functions that are already in the known system
     if isnothing(Ξ)
         @parameters Ξ[1:length(unknown_basis), 1:length(unknowns(sys_known))]

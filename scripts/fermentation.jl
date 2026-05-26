@@ -1,7 +1,7 @@
 using Pkg
 Pkg.activate(@__DIR__)
 # Pkg.instantiate()
-# include("../src/hybrid_model.jl")
+include("../src/hybrid_model.jl")
 # # include("../src/SINDy_methods.jl")
 # include("../src/polyopt.jl") 
 using Revise, DifferentialEquations, ModelingToolkit, Catalyst

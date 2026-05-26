@@ -1,9 +1,9 @@
 using Pkg
 Pkg.activate("fermentation_testing")
 using Revise, DifferentialEquations, ModelingToolkit, Catalyst, Plots
-include("../src/hybrid_model.jl")
-export create_callback
-include("../src/polyopt.jl")
+# include("../src/hybrid_model.jl")
+# export create_callback
+# include("../src/polyopt.jl")
  
 fermentation_model = @reaction_network begin
     @parameters begin
@@ -11,7 +11,7 @@ fermentation_model = @reaction_network begin
         glucose_0 = 130.0   #g/L
 
         #Growth parameters (assumed time unit: hours, concentrations: g/L)
-        μ_DT = 0.35            # 1/h  - death rate of active biomass
+        μ_DT = 0.1            # 1/h  - death rate of active biomass
         μ_L = 0.005            # 1/h  - activation rate (latent -> active)
         μ_x0 = 1.0            # 1/h  - basal growth rate
         k_x = 5.0              # g/L  - half-saturation constant (for μ_x denominator)
@@ -44,7 +44,7 @@ fermentation_model = @reaction_network begin
 
     @variables begin
         #Substrate and product concentrations
-        glucose(t) = glucose_0        # g/L
+        glucose(t) = 130        # g/L
         metabolite(t) = 0.0        # g/L
         # ethyl_acetate(t) = 0.0  # g/L
         # diacetyl(t) = 0.0      # g/L
@@ -77,7 +77,7 @@ fermentation_model = @reaction_network begin
         μ_SD ~ μ_SD0 * (0.5*glucose_0/(0.5*glucose_0 + metabolite))
         μ_glucose ~ μ_glucose_max * (glucose / (k_glucose + glucose))
         μ_metabolite ~ μ_metabolite_max * (glucose / (k_metabolite + glucose))
-
+ 
         #Feed control logic (simple on/off based on glucose concentration) 
         F_feed ~ feed_on * μ_glucose * X_active
         D(feed_on) ~ 0.0
@@ -109,7 +109,7 @@ end
 
 
 
-@named odesys = convert(ODESystem, fermentation_model)
+@named odesys = Catalyst.ode_model(fermentation_model)#convert(ODESystem, fermentation_model)
 odesys = structural_simplify(odesys) 
 
 idx_dict = Dict(zip(string.(unknowns(odesys)), 1:length(unknowns(fermentation_model))))
@@ -133,13 +133,15 @@ condition_feed_stop(u, t, integrator) = t >= 100.0 # Stop feed after 50 hours
 affect_feed_stop!(integrator) = (integrator.u[idx_dict["feed_on(t)"]] = 0.0) # Set feed_on back to 0 when stopped
 cb_feed_stop = DiscreteCallback(condition_feed_stop, affect_feed_stop!)
 
-cb_combined = CallbackSet(cb, cb_stop, cb_feed, cb_feed_stop) 
+cb_combined = CallbackSet(cb, cb_stop, cb_feed, cb_feed_stop)   
 
 
 
 
+pdict = Dict(:μ_x0 => 0.2, :μ_DT => 0.15)
+prob = ODEProblem(odesys, pdict, (0.0, 150.0), callback=cb_combined, warn_initialize_determined = false)
+prob = remake(prob, p = pdict)
 
-prob = ODEProblem(odesys, [], (0.0, 150.0), callback=cb_combined)
 sol = solve(prob, Tsit5(), saveat=0.1)      
 #plot oxygen
 #  np_oxygen = plot(sol, idxs = [:DO, :OUR], labels=hcat(["Dissolved Oxygen", "Oxygen Uptake Rate"]...), title = "Oxygen Dynamics", xlabel = "Time (h)", ylabel = "Concentration / Rate (g/L or g/L/h)", color=[:cyan :magenta])
@@ -155,14 +157,29 @@ p_feeding = plot(sol, idxs = :F_feed, labels="Feed rate", title = "Feeding", xla
 
 p_biomass = plot(sol, idxs = [:X_latent, :X_active, :X_dead, X_latent + X_active + X_dead], labels=hcat(["X_latent", "X_active", "X_dead", "Total"]...), title = "Biomass Concentrations", xlabel = "Time (h)", ylabel = "Concentration (g/L)", color=[:orange :green :red :black])
 #plot the substrate and products
-p_substrate_products = plot(sol, idxs = [:diacetyl, :metabolite, :ethyl_acetate, :glucose], labels=hcat(["diacetyl", "metabolite", "ethyl_acetate", "glucose"]...), title = "Substrate and Product Concentrations", xlabel = "Time (h)", ylabel = "Concentration (g/L)", color=[:purple :brown :pink :gray])
+p_substrate_products = plot(sol, idxs = [:metabolite, :glucose], labels=hcat(["metabolite", "glucose"]...), title = "Substrate and Product Concentrations", xlabel = "Time (h)", ylabel = "Concentration (g/L)", color=[:purple :brown :pink :gray])
+
+
 #plot the temperature variables
 # p_temperature = plot(sol, idxs = 8:9, labels=hcat(["fermentor_temperature", "jacket_temperature"]...))
 #combine the plots
 final_plot = plot(p_biomass, p_substrate_products, p_temperature, p_feeding, layout=(2,2), size=(900,600))
 
 
+
 using DataFrames, Random
+
+
+
+using DataFrames
+#split train and test data at 80% of the time series
+
+
+# test_time = timedata[1:round(Int, n_data * train_fraction)]
+
+
+
+
 
 # Build a mixed-frequency dataframe.
 # Biomass / substrates / products are observed every 24 h. 
@@ -183,15 +200,55 @@ df = DataFrame(
     X_dead = [observed_24h(t) ? noisy(sol(t, idxs = :X_dead), 0.05, 0.02) : missing for t in sample_times],
     glucose = [observed_24h(t) ? noisy(sol(t, idxs = :glucose), 0.03, 0.05) : missing for t in sample_times],
     metabolite = [observed_24h(t) ? noisy(sol(t, idxs = :metabolite), 0.03, 0.02) : missing for t in sample_times],
-    ethyl_acetate = [observed_24h(t) ? noisy(sol(t, idxs = :ethyl_acetate), 0.03, 0.02) : missing for t in sample_times],
-    diacetyl = [observed_24h(t) ? noisy(sol(t, idxs = :diacetyl), 0.03, 0.01) : missing for t in sample_times],
     fermentor_temperature = [noisy(sol(t, idxs = :fermentor_temperature), 0.01, 0.1) for t in sample_times],
     jacket_temperature = [noisy(sol(t, idxs = :jacket_temperature), 0.01, 0.1) for t in sample_times],
-    F_feed = [noisy(sol(t, idxs = :F_feed), 0.02, 0.01) for t in sample_times]
+    F_feed = [noisy(sol(t, idxs = :F_feed), 0.02, 0.01) for t in sample_times],
+    coolant_rate = [noisy(sol(t, idxs = :coolant_rate), 0.02, 0.01) for t in sample_times]
 )
 
 df.X_total = coalesce.(df.X_latent, 0.0) .+ coalesce.(df.X_active, 0.0) .+ coalesce.(df.X_dead, 0.0)
 
+measurements = stack(df, Not(:time), variable_name = :obs_id, value_name = :measurement)
+dropmissing!(measurements, :measurement)
+measurements[!, :simulation_id] = fill("cond1", nrow(measurements))
+select!(measurements, :simulation_id, :obs_id, :time, :measurement)
+sort!(measurements, [:time, :obs_id])
+
+using ModelingToolkit:D_nounits as D
+#empty system
+eqs = [D.(unknowns(odesys)) .~ 0.0;]
+@unpack t,glucose,metabolite,glucose_0,fermentor_temperature,jacket_temperature,F_feed, coolant_rate, feed_on = odesys
+@named empty_sys = ODESystem(eqs,t)
+empty_sys = complete(empty_sys)
+obs = Dict("X_active" => X_active, "X_latent" => X_latent, "X_dead" => X_dead, "glucose" => glucose, "metabolite" => metabolite, 
+            "fermentor_temperature" => fermentor_temperature, "jacket_temperature" => jacket_temperature, 
+            "F_feed" => F_feed, "X_total" => X_total, "coolant_rate" => coolant_rate, "feed_on" => feed_on)
+
+events = Dict(:callback => cb_combined)
+
+u0map = Dict([glucose => 130.0, metabolite => 0.0, fermentor_temperature => 10.0, 
+    jacket_temperature => 4.0, F_feed => 0.0, X_latent => 3.0, 
+    X_active => 0.0, X_dead => 1.0, coolant_rate => 0.0, feed_on => 0.0])
+hmodel = HybridModel(odesys, empty_sys; rng = rng, events = events, observables = unknowns(odesys))
+
+observables(sys::System) = unknowns(sys)
+observed(sys::System) = unknowns(sys)
+trainpeprob = HybridPEProblem(hmodel, obs, measurements, u0map; 
+                   ens_alg = EnsembleSplitThreads(),
+                #    log_transform = false, 
+                   force_dtmin = true)
+initp_samples = init_params(hmodel)# n = n_runs, lb = lb, ub = ub)
+opt_prob = Optimization.OptimizationProblem(trainpeprob; initp_samples = initp_samples, adalg = Optimization.AutoZygote(),
+                                         random_sampling_percentage = 0.2)
+
+
+cb, trace = create_callback(trainpeprob,  plot_every = 30, report_every = 30, loss_upper_bound = 1e7,
+                       xlabel = "Time", ylabel = "Signal", title = "Octet Simuluated Data", save_trace = true)
+opt_sol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = 1e-2, n_partitions = 2), 
+                            maxiters = 1000,
+                            maxiter_BFGS = 300,)
+                           #  show_trace = true, show_every = 10,
+                            # callback = cb)
 
 p_temperature = scatter!(p_temperature, df.time, df.fermentor_temperature, label="Fermentor Temperature", color=:red)
 scatter!(p_temperature, df.time, df.jacket_temperature, label="Jacket Temperature", color=:blue)

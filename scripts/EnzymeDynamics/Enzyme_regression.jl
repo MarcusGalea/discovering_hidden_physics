@@ -28,6 +28,7 @@ test_measurements_exp = test_measurements[included_exp(test_measurements), :]
 alpha = 1e-2
 l1_ratio = 0.0
 ###
+initp = init_params(hmodel)
 trainpeprob = HybridPEProblem(hmodel, obs, train_measurements_exp, u0map; 
                    conditions = ic_vals,
                    ens_alg = EnsembleSplitThreads(),

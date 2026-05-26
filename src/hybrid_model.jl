@@ -1,24 +1,24 @@
 # using PEtab
-using DifferentialEquations
-using Lux
-using ModelingToolkit
-using Random
-import ModelingToolkit:has_observed,observables
-using Optimization
+using DifferentialEquations, Lux, ModelingToolkit, Optimization, 
+SciMLSensitivity,DataFrames, ComponentArrays, 
+LatinHypercubeSampling, MLUtils, Colors, Base, ForwardDiff
+# using Random
+# import ModelingToolkit:has_observed,observables
+# using Optimization
 import Optimization:solve
-using SciMLSensitivity
-using DataFrames
-using ComponentArrays
-using LatinHypercubeSampling
-using MLUtils
-using Surrogates
-using Colors
+# using SciMLSensitivity
+# using DataFrames
+# using ComponentArrays
+# using LatinHypercubeSampling
+# using MLUtils
+# using Surrogates
+# using Colors
 
 
 #DANGEROUS CONVSERION INCOMING! MIGHT RUIN OPTIMIZATION (yet necessary for AD with BFGS)
-using Base
+# using Base
 import Base: convert
-using ForwardDiff
+# using ForwardDiff
 Base.convert(::Type{T}, x::ForwardDiff.Dual)  where T <: Number = x.value
 
 mutable struct NullModel <: ModelingToolkit.AbstractTimeDependentSystem
@@ -36,7 +36,7 @@ mutable struct HybridModel
     """ The known underlying ODE system."""
     sys::ODESystem
     """ The surrogate model, which can be a normal ODESystem, SINDy model, or a Lux Machine Learning Model."""
-    surrogate::Union{ModelingToolkit.AbstractTimeDependentSystem, Lux.Chain}#, PEtab.MLModel}
+    surrogate::Union{ModelingToolkit.AbstractTimeDependentSystem}#, Lux.Chain}#, PEtab.MLModel}
     """ Discrete events that trigger during the simulation."""
     events::Dict
     """ Observables that are computed during the simulation. (Defaults to unknowns of sys)"""

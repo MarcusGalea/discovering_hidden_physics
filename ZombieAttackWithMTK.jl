@@ -170,6 +170,12 @@ We can say that there is a positive rate 🦠 that describes the chance of a zom
 We can then define the following system of equation: 
 """
 
+# ╔═╡ ad15095c-a5bb-46e0-84a3-a20ce765b6c0
+D(😟) ~ -🦠*😟*🧟
+
+# ╔═╡ fd5ac3bd-4190-4242-a460-b9f755082b8d
+D(🧟) ~  🦠*😟*🧟
+
 # ╔═╡ 4c3f3770-ef33-41a5-89a6-274101b06c87
 md"""However since 🦠 is defined to be positive this model is quite pessimistic, every scenario will eventually end up with all susceptible humans turning into zombies and taking over the world. 
 
@@ -188,6 +194,9 @@ Additionally, these zombies will be hard to get rid of since there is a small ch
 
 # ╔═╡ 71baff78-d298-4c6a-99d5-6b65c1c27e6f
 md"""Our model now looks like this:"""
+
+# ╔═╡ 70547a7e-c357-4787-9c34-d2789bb60860
+simple_attack_sys
 
 # ╔═╡ 77d94a92-f058-4b9f-9df8-9de58603c293
 md"## Setting up the system"
@@ -211,12 +220,6 @@ The first step is to define the variables that will be needed for the model. Tha
 # ╔═╡ 6bfa46a7-f50d-49b6-bebc-b7821f89100f
 @parameters ⚔️ 🦠 💀  
 
-# ╔═╡ ad15095c-a5bb-46e0-84a3-a20ce765b6c0
-D(😟) ~ -🦠*😟*🧟
-
-# ╔═╡ fd5ac3bd-4190-4242-a460-b9f755082b8d
-D(🧟) ~  🦠*😟*🧟
-
 # ╔═╡ 52d9452b-5c1e-42ea-8976-0ec2f30eaaf8
 md"Once we have defined everything, we can put them together to define the system via the System constructor:"
 
@@ -228,9 +231,6 @@ md"Once we have defined everything, we can put them together to define the syste
 		D(😵) ~ 		  	 	⚔️*😟*🧟 - 💀*😵
 	], t
 )
-
-# ╔═╡ 70547a7e-c357-4787-9c34-d2789bb60860
-simple_attack_sys
 
 # ╔═╡ 4b731a5f-3fe2-4691-8f89-c37f05d623ab
 md"Now in order to simulate what would happen to our model we need to set some values for each of the variables and parameter of the system"
@@ -1249,62 +1249,7 @@ md"---"
 # (s1 = 5.0, s2 = 50.0)
 # ```
 # """
-function format_sliderParameter(sliderParams;title::String = "")
-
-	return combine() do Child
-		mds = []
-		for sliderParam in sliderParams
-		push!(mds,
-			@htl("""
-			<div class="slider-container-content">
-				<div class="slider-container-content-inner"> 
-					<div class="label-chip"> 
-						<h4>$(sliderParam.label)</h4>
-					</div>
-					<div>
-						$(Child(
-							sliderParam.alias, 
-							PlutoUI.Slider(
-								sliderParam.lb:sliderParam.step:sliderParam.ub,
-								default = sliderParam.default, 
-								show_value = true)
-							)
-						) 
-					</div>
-				</div>
-			
-				<div class="slider-container-content-inner"> 
-					<p>$(sliderParam.description)
-				</div>
-			</div>
-			
-			"""))
-		end
-		if(title == "") 
-			titleDiv = @htl("<div></div>") 
-		else
-			titleDiv = @htl("""
-				<div class="slider-container-title">
-					<h4>
-					$title
-					</h4>
-				</div>"""
-			)
-		end
-		
-		@htl("""
-		
-		<div class="slider-container">
-			
-			$titleDiv
-			
-			<div class="slider-container-content-wrapper">
-				$(mds)
-			</div>
-		</div>
-		""")
-	end
-end
+ 
 
 # ╔═╡ 49f7ca3c-4b9d-4145-9faa-70d082a5c8d9
 begin

@@ -1,25 +1,21 @@
 using Pkg
-Pkg.activate(@__DIR__)
-# Pkg.instantiate()
-# include("../src/hybrid_model.jl")
-# # include("../src/SINDy_methods.jl")
-# include("../src/polyopt.jl") 
-using Revise, DifferentialEquations, ModelingToolkit, Catalyst
-using Lux
-using ModelingToolkit: t_nounits as t, D_nounits as D
-using Plots
-
+Pkg.activate("fermentation_testing")
+using Revise, DifferentialEquations, ModelingToolkit, Catalyst, Plots
+include("../src/hybrid_model.jl")
+export create_callback
+include("../src/polyopt.jl")
+ 
 fermentation_model = @reaction_network begin
     @parameters begin
         #Initial conditions
         glucose_0 = 130.0   #g/L
 
         #Growth parameters (assumed time unit: hours, concentrations: g/L)
-        μ_DT = 0.01            # 1/h  - death rate of active biomass
-        μ_L = 0.05            # 1/h  - activation rate (latent -> active)
-        μ_xmax = 0.05            # 1/h  - basal growth rate
-        k_x = 39.0              # g/L  - half-saturation constant (for μ_x denominator)
-        μ_SD0 = 0.025           # 1/h  - sloughing/death baseline rate
+        μ_DT = 0.35            # 1/h  - death rate of active biomass
+        μ_L = 0.005            # 1/h  - activation rate (latent -> active)
+        μ_x0 = 1.0            # 1/h  - basal growth rate
+        k_x = 5.0              # g/L  - half-saturation constant (for μ_x denominator)
+        μ_SD0 = 0.25           # 1/h  - sloughing/death baseline rate
         μ_glucose_max = 1.2  # 1/h  - max glucose consumption rate
         k_glucose = 12.0       # g/L  - Monod constant for glucose
         μ_metabolite_max = 0.8  # 1/h  - max metabolite effect rate
@@ -39,7 +35,6 @@ fermentation_model = @reaction_network begin
         O_solubility = 10.0 # g/L - maximum dissolved oxygen concentration at given conditions 
         kla = 0.1            # 1/h - volumetric mass transfer coefficient for oxygen 
     end
-
     @species begin
         #Biomass species
         X_latent(t) = 3.0   # g/L - latent biomass concentration
@@ -78,7 +73,7 @@ fermentation_model = @reaction_network begin
         X_total ~ X_latent + X_active + X_dead
 
         #Growth rates
-        μ_x ~ μ_xmax * (glucose / (k_x+ glucose))*exp(-(fermentor_temperature - optimal_temperature)^2/(2*sd_temp^2)) # Temperature effect on growth (Gaussian centered at optimal temperature)
+        μ_x ~ μ_x0 * (glucose / (k_x + glucose))*exp(-(fermentor_temperature - optimal_temperature)^2/(2*sd_temp^2)) # Temperature effect on growth (Gaussian centered at optimal temperature)
         μ_SD ~ μ_SD0 * (0.5*glucose_0/(0.5*glucose_0 + metabolite))
         μ_glucose ~ μ_glucose_max * (glucose / (k_glucose + glucose))
         μ_metabolite ~ μ_metabolite_max * (glucose / (k_metabolite + glucose))
@@ -125,7 +120,7 @@ idx_dict = Dict(zip(string.(unknowns(odesys)), 1:length(unknowns(fermentation_mo
 #events
 #Temperature control parameters
 condition(u, t, integrator) = u[idx_dict["fermentor_temperature(t)"]] > 35.0 # Trigger when fermentor temperature exceeds 30°C
-affect!(integrator) = (integrator.u[idx_dict["coolant_rate(t)"]] = 1.0) # Set coolant_rate to 0.5 L/min when triggered
+affect!(integrator) = (integrator.u[idx_dict["coolant_rate(t)"]] = 0.5) # Set coolant_rate to 0.5 L/min when triggered
 cb = DiscreteCallback(condition, affect!) 
 condition_stop(u, t, integrator) = u[idx_dict["fermentor_temperature(t)"]] < 10.0 # Stop when fermentor temperature drops below 10°C
 affect_stop!(integrator) = (integrator.u[idx_dict["coolant_rate(t)"]] = 0.) # Set coolant_rate back to 0 when stopped
@@ -160,7 +155,7 @@ p_feeding = plot(sol, idxs = :F_feed, labels="Feed rate", title = "Feeding", xla
 
 p_biomass = plot(sol, idxs = [:X_latent, :X_active, :X_dead, X_latent + X_active + X_dead], labels=hcat(["X_latent", "X_active", "X_dead", "Total"]...), title = "Biomass Concentrations", xlabel = "Time (h)", ylabel = "Concentration (g/L)", color=[:orange :green :red :black])
 #plot the substrate and products
-p_substrate_products = plot(sol, idxs = [ :metabolite, :glucose], labels=hcat(["metabolite", "glucose"]...), title = "Substrate and Product Concentrations", xlabel = "Time (h)", ylabel = "Concentration (g/L)", color=[:purple :brown :pink :gray])
+p_substrate_products = plot(sol, idxs = [:diacetyl, :metabolite, :ethyl_acetate, :glucose], labels=hcat(["diacetyl", "metabolite", "ethyl_acetate", "glucose"]...), title = "Substrate and Product Concentrations", xlabel = "Time (h)", ylabel = "Concentration (g/L)", color=[:purple :brown :pink :gray])
 #plot the temperature variables
 # p_temperature = plot(sol, idxs = 8:9, labels=hcat(["fermentor_temperature", "jacket_temperature"]...))
 #combine the plots
@@ -170,7 +165,7 @@ final_plot = plot(p_biomass, p_substrate_products, p_temperature, p_feeding, lay
 using DataFrames, Random
 
 # Build a mixed-frequency dataframe.
-# Biomass / substrates / products are observed every 24 h.
+# Biomass / substrates / products are observed every 24 h. 
 # Temperature and feeding are observed every hour.
 sample_times = collect(0.0:1.0:150.0)
 biomass_times = Set(0.0:24.0:150.0)

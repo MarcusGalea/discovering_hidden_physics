@@ -20,16 +20,16 @@ fermentation_model = @reaction_network begin
         k_glucose = 12.0       # g/L  - Monod constant for glucose
         μ_metabolite_max = 0.8  # 1/h  - max metabolite effect rate
         k_metabolite = 10.0       # g/L  - Monod constant for metabolite effect
-        # μ_DY = 0.001           # (see equation) empirical coeff for diacetyl formation (per g·L⁻¹·h)
-        # μ_AB = 0.01            # (see equation) empirical coeff for diacetyl removal (per g·L⁻¹·h)
-        # Y_EA = 0.05            # g ethyl_acetate / g biomass - yield (dimensionless)
+        μ_DY = 0.05            #  empirical coeff for diacetyl formation (per g·L⁻¹·h)
+        μ_AB = 0.01            #  empirical coeff for diacetyl removal (per g·L⁻¹·h)
+        Y_EA = 0.5            # g ethyl_acetate / g biomass - yield (dimensionless)
         
         # #Temperature parameters 
         ΔH_total = .5       # J/g - total heat generated per g of glucose consumed (exothermic)
         T_C0 = 4.0             # °C - coolant temperature
         heat_transfer = 0.5    # 1/h - heat transfer coefficient between fermentor and jacket
         optimal_temperature = 25.0 # °C - optimal temperature for growth 
-        sd_temp = 30.0          # °C - standard deviation for temperature effect (for Gaussian distribution)
+        sd_temp = 30.0          # °C - standard deviation for temperature effect (for Gaussian curve)
         
         #Oxygen parameters
         O_solubility = 10.0 # g/L - maximum dissolved oxygen concentration at given conditions 
@@ -46,8 +46,8 @@ fermentation_model = @reaction_network begin
         #Substrate and product concentrations
         glucose(t) = 130        # g/L
         metabolite(t) = 0.0        # g/L
-        # ethyl_acetate(t) = 0.0  # g/L
-        # diacetyl(t) = 0.0      # g/L
+        ethyl_acetate(t) = 0.0  # g/L
+        diacetyl(t) = 0.0      # g/L
 
         #Temperature variables
         jacket_temperature(t) = 4.0       # °C
@@ -55,8 +55,8 @@ fermentation_model = @reaction_network begin
         coolant_rate(t) = 0.0                # L/min
 
         #Oxygen concentration 
-        # DO(t) = 10.0                     # g/L - dissolved oxygen concentration 
-        # OUR(t) = 0.0                    # g/L/h - oxygen uptake rate
+        DO(t) = 10.0                     # g/L - dissolved oxygen concentration 
+        OUR(t) = 0.0                    # g/L/h - oxygen uptake rate
 
         #Fed batch feed rate (time-varying input)
         F_feed(t) = 0.0                     # g/L/h - feed rate of glucose (can be time-varying)
@@ -85,8 +85,8 @@ fermentation_model = @reaction_network begin
         #Dynamics of products and by-products
         D(glucose) ~ -μ_glucose * X_active + F_feed
         D(metabolite) ~ μ_metabolite * X_active * (1 - metabolite / (0.5 * glucose_0))
-        # D(ethyl_acetate) ~ Y_EA * μ_x * X_active
-        # D(diacetyl) ~ μ_DY * X_active * glucose - μ_AB * diacetyl * metabolite
+        D(ethyl_acetate) ~ Y_EA * μ_x * X_active
+        D(diacetyl) ~ μ_DY * X_active * glucose - μ_AB * diacetyl * metabolite
  
         #Temperature dynamics
         D(coolant_rate) ~ 0.0           # Treat coolant_rate as a control input (constant or time-varying)
@@ -94,8 +94,8 @@ fermentation_model = @reaction_network begin
         D(jacket_temperature) ~ coolant_rate * (T_C0 - jacket_temperature) + heat_transfer * (fermentor_temperature - jacket_temperature )
 
         #Oxygen dynamics 
-        # D(DO) ~ -OUR + kla * (O_solubility - DO) # Simple oxygen dynamics with uptake and re-aeration
-        # OUR ~ 0.5 * μ_x * X_active # Oxygen uptake rate proportional to growth rate and active biomass
+        D(DO) ~ -OUR + kla * (O_solubility - DO) # Simple oxygen dynamics with uptake and re-aeration
+        OUR ~ 0.5 * μ_x * X_active # Oxygen uptake rate proportional to growth rate and active biomass
     end
 
     #Cell growth and death       
@@ -136,9 +136,7 @@ cb_feed_stop = DiscreteCallback(condition_feed_stop, affect_feed_stop!)
 cb_combined = CallbackSet(cb, cb_stop, cb_feed, cb_feed_stop)   
 
 
-
-
-pdict = Dict(:μ_x0 => 0.2, :μ_DT => 0.15)
+pdict = Dict(:μ_x0 => 0.2, :μ_DT => 0.15) 
 prob = ODEProblem(odesys, pdict, (0.0, 150.0), callback=cb_combined, warn_initialize_determined = false)
 prob = remake(prob, p = pdict)
 
@@ -157,21 +155,21 @@ p_feeding = plot(sol, idxs = :F_feed, labels="Feed rate", title = "Feeding", xla
 
 p_biomass = plot(sol, idxs = [:X_latent, :X_active, :X_dead, X_latent + X_active + X_dead], labels=hcat(["X_latent", "X_active", "X_dead", "Total"]...), title = "Biomass Concentrations", xlabel = "Time (h)", ylabel = "Concentration (g/L)", color=[:orange :green :red :black])
 #plot the substrate and products
-p_substrate_products = plot(sol, idxs = [:metabolite, :glucose], labels=hcat(["metabolite", "glucose"]...), title = "Substrate and Product Concentrations", xlabel = "Time (h)", ylabel = "Concentration (g/L)", color=[:purple :brown :pink :gray])
+p_substrate_products = plot(sol, idxs = [:metabolite, :glucose, :ethyl_acetate, :diacetyl], labels=hcat(["metabolite", "glucose", "ethyl_acetate", "diacetyl"]...), title = "Substrate and Product Concentrations", xlabel = "Time (h)", ylabel = "Concentration (g/L)", color=[:purple :brown :pink :gray])
 
 
 #plot the temperature variables
-# p_temperature = plot(sol, idxs = 8:9, labels=hcat(["fermentor_temperature", "jacket_temperature"]...))
+p_temperature = plot(sol, idxs = 8:9, labels=hcat(["fermentor_temperature", "jacket_temperature"]...))
 #combine the plots
 final_plot = plot(p_biomass, p_substrate_products, p_temperature, p_feeding, layout=(2,2), size=(900,600))
 
 
 
-using DataFrames, Random
+# using DataFrames, Random
 
 
 
-using DataFrames
+# using DataFrames
 #split train and test data at 80% of the time series
 
 
@@ -184,81 +182,81 @@ using DataFrames
 # Build a mixed-frequency dataframe.
 # Biomass / substrates / products are observed every 24 h. 
 # Temperature and feeding are observed every hour.
-sample_times = collect(0.0:1.0:150.0)
-biomass_times = Set(0.0:24.0:150.0)
-rng = MersenneTwister(42)
+# sample_times = collect(0.0:1.0:150.0)
+# biomass_times = Set(0.0:24.0:150.0)
+# rng = MersenneTwister(42)
 
-noise_scale(value, rel_sigma, abs_floor) = max(abs(value) * rel_sigma, abs_floor)
-noisy(value, rel_sigma, abs_floor) = value + randn(rng) * noise_scale(value, rel_sigma, abs_floor)
+# noise_scale(value, rel_sigma, abs_floor) = max(abs(value) * rel_sigma, abs_floor)
+# noisy(value, rel_sigma, abs_floor) = value + randn(rng) * noise_scale(value, rel_sigma, abs_floor)
 
-observed_24h(t) = any(isapprox(t, τ; atol = 1e-9) for τ in biomass_times)
+# observed_24h(t) = any(isapprox(t, τ; atol = 1e-9) for τ in biomass_times)
 
-df = DataFrame(
-    time = sample_times,
-    X_latent = [observed_24h(t) ? noisy(sol(t, idxs = :X_latent), 0.05, 0.02) : missing for t in sample_times],
-    X_active = [observed_24h(t) ? noisy(sol(t, idxs = :X_active), 0.05, 0.02) : missing for t in sample_times],
-    X_dead = [observed_24h(t) ? noisy(sol(t, idxs = :X_dead), 0.05, 0.02) : missing for t in sample_times],
-    glucose = [observed_24h(t) ? noisy(sol(t, idxs = :glucose), 0.03, 0.05) : missing for t in sample_times],
-    metabolite = [observed_24h(t) ? noisy(sol(t, idxs = :metabolite), 0.03, 0.02) : missing for t in sample_times],
-    fermentor_temperature = [noisy(sol(t, idxs = :fermentor_temperature), 0.01, 0.1) for t in sample_times],
-    jacket_temperature = [noisy(sol(t, idxs = :jacket_temperature), 0.01, 0.1) for t in sample_times],
-    F_feed = [noisy(sol(t, idxs = :F_feed), 0.02, 0.01) for t in sample_times],
-    coolant_rate = [noisy(sol(t, idxs = :coolant_rate), 0.02, 0.01) for t in sample_times]
-)
+# df = DataFrame(
+#     time = sample_times,
+#     X_latent = [observed_24h(t) ? noisy(sol(t, idxs = :X_latent), 0.05, 0.02) : missing for t in sample_times],
+#     X_active = [observed_24h(t) ? noisy(sol(t, idxs = :X_active), 0.05, 0.02) : missing for t in sample_times],
+#     X_dead = [observed_24h(t) ? noisy(sol(t, idxs = :X_dead), 0.05, 0.02) : missing for t in sample_times],
+#     glucose = [observed_24h(t) ? noisy(sol(t, idxs = :glucose), 0.03, 0.05) : missing for t in sample_times],
+#     metabolite = [observed_24h(t) ? noisy(sol(t, idxs = :metabolite), 0.03, 0.02) : missing for t in sample_times],
+#     fermentor_temperature = [noisy(sol(t, idxs = :fermentor_temperature), 0.01, 0.1) for t in sample_times],
+#     jacket_temperature = [noisy(sol(t, idxs = :jacket_temperature), 0.01, 0.1) for t in sample_times],
+#     F_feed = [noisy(sol(t, idxs = :F_feed), 0.02, 0.01) for t in sample_times],
+#     coolant_rate = [noisy(sol(t, idxs = :coolant_rate), 0.02, 0.01) for t in sample_times]
+# )
 
-df.X_total = coalesce.(df.X_latent, 0.0) .+ coalesce.(df.X_active, 0.0) .+ coalesce.(df.X_dead, 0.0)
+# df.X_total = coalesce.(df.X_latent, 0.0) .+ coalesce.(df.X_active, 0.0) .+ coalesce.(df.X_dead, 0.0)
 
-measurements = stack(df, Not(:time), variable_name = :obs_id, value_name = :measurement)
-dropmissing!(measurements, :measurement)
-measurements[!, :simulation_id] = fill("cond1", nrow(measurements))
-select!(measurements, :simulation_id, :obs_id, :time, :measurement)
-sort!(measurements, [:time, :obs_id])
+# measurements = stack(df, Not(:time), variable_name = :obs_id, value_name = :measurement)
+# dropmissing!(measurements, :measurement)
+# measurements[!, :simulation_id] = fill("cond1", nrow(measurements))
+# select!(measurements, :simulation_id, :obs_id, :time, :measurement)
+# sort!(measurements, [:time, :obs_id])
 
-using ModelingToolkit:D_nounits as D
-#empty system
-eqs = [D.(unknowns(odesys)) .~ 0.0;]
-@unpack t,glucose,metabolite,glucose_0,fermentor_temperature,jacket_temperature,F_feed, coolant_rate, feed_on = odesys
-@named empty_sys = ODESystem(eqs,t)
-empty_sys = complete(empty_sys)
-obs = Dict("X_active" => X_active, "X_latent" => X_latent, "X_dead" => X_dead, "glucose" => glucose, "metabolite" => metabolite, 
-            "fermentor_temperature" => fermentor_temperature, "jacket_temperature" => jacket_temperature, 
-            "F_feed" => F_feed, "X_total" => X_total, "coolant_rate" => coolant_rate, "feed_on" => feed_on)
+# using ModelingToolkit:D_nounits as D
+# #empty system
+# eqs = [D.(unknowns(odesys)) .~ 0.0;]
+# @unpack t,glucose,metabolite,glucose_0,fermentor_temperature,jacket_temperature,F_feed, coolant_rate, feed_on = odesys
+# @named empty_sys = ODESystem(eqs,t)
+# empty_sys = complete(empty_sys)
+# obs = Dict("X_active" => X_active, "X_latent" => X_latent, "X_dead" => X_dead, "glucose" => glucose, "metabolite" => metabolite, 
+#             "fermentor_temperature" => fermentor_temperature, "jacket_temperature" => jacket_temperature, 
+#             "F_feed" => F_feed, "X_total" => X_total, "coolant_rate" => coolant_rate, "feed_on" => feed_on)
 
-events = Dict(:callback => cb_combined)
+# events = Dict(:callback => cb_combined)
 
-u0map = Dict([glucose => 130.0, metabolite => 0.0, fermentor_temperature => 10.0, 
-    jacket_temperature => 4.0, F_feed => 0.0, X_latent => 3.0, 
-    X_active => 0.0, X_dead => 1.0, coolant_rate => 0.0, feed_on => 0.0])
-hmodel = HybridModel(odesys, empty_sys; rng = rng, events = events, observables = unknowns(odesys))
+# u0map = Dict([glucose => 130.0, metabolite => 0.0, fermentor_temperature => 10.0, 
+#     jacket_temperature => 4.0, F_feed => 0.0, X_latent => 3.0, 
+#     X_active => 0.0, X_dead => 1.0, coolant_rate => 0.0, feed_on => 0.0])
+# hmodel = HybridModel(odesys, empty_sys; rng = rng, events = events, observables = unknowns(odesys))
 
-observables(sys::System) = unknowns(sys)
-observed(sys::System) = unknowns(sys)
-trainpeprob = HybridPEProblem(hmodel, obs, measurements, u0map; 
-                   ens_alg = EnsembleSplitThreads(),
-                #    log_transform = false, 
-                   force_dtmin = true)
-initp_samples = init_params(hmodel)# n = n_runs, lb = lb, ub = ub)
-opt_prob = Optimization.OptimizationProblem(trainpeprob; initp_samples = initp_samples, adalg = Optimization.AutoZygote(),
-                                         random_sampling_percentage = 0.2)
+# observables(sys::System) = unknowns(sys)
+# observed(sys::System) = unknowns(sys)
+# trainpeprob = HybridPEProblem(hmodel, obs, measurements, u0map; 
+#                    ens_alg = EnsembleSplitThreads(),
+#                 #    log_transform = false, 
+#                    force_dtmin = true)
+# initp_samples = init_params(hmodel)# n = n_runs, lb = lb, ub = ub)
+# opt_prob = Optimization.OptimizationProblem(trainpeprob; initp_samples = initp_samples, adalg = Optimization.AutoZygote(),
+#                                          random_sampling_percentage = 0.2)
 
 
-cb, trace = create_callback(trainpeprob,  plot_every = 30, report_every = 30, loss_upper_bound = 1e7,
-                       xlabel = "Time", ylabel = "Signal", title = "Octet Simuluated Data", save_trace = true)
-opt_sol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = 1e-2, n_partitions = 2), 
-                            maxiters = 1000,
-                            maxiter_BFGS = 300,)
-                           #  show_trace = true, show_every = 10,
-                            # callback = cb)
+# cb, trace = create_callback(trainpeprob,  plot_every = 30, report_every = 30, loss_upper_bound = 1e7,
+#                        xlabel = "Time", ylabel = "Signal", title = "Octet Simuluated Data", save_trace = true)
+# opt_sol = Optimization.solve(opt_prob, ProgressivePolyOpt(lr = 1e-2, n_partitions = 2), 
+#                             maxiters = 1000,
+#                             maxiter_BFGS = 300,)
+#                            #  show_trace = true, show_every = 10,
+#                             # callback = cb)
 
-p_temperature = scatter!(p_temperature, df.time, df.fermentor_temperature, label="Fermentor Temperature", color=:red)
-scatter!(p_temperature, df.time, df.jacket_temperature, label="Jacket Temperature", color=:blue)
-p_feeding = scatter!(p_feeding, df.time, df.F_feed, label="Feed Rate", color=:green)
-p_biomass = scatter!(p_biomass, df.time, df.X_latent, label="X_latent", color=:orange)
-scatter!(p_biomass, df.time, df.X_active, label="X_active", color=:green)
-scatter!(p_biomass, df.time, df.X_dead, label="X_dead", color=:red)
-scatter!(p_biomass, df.time, df.X_total, label="Total Biomass", color=:black)
-p_substrate_products = scatter!(p_substrate_products, df.time, df.glucose, label="Glucose", color=:gray)
-scatter!(p_substrate_products, df.time, df.metabolite, label="Metabolite", color=:brown)
-scatter!(p_substrate_products, df.time, df.ethyl_acetate, label="Ethyl Acetate", color=:pink)
-scatter!(p_substrate_products, df.time, df.diacetyl, label="Diacetyl", color=:purple)
-final_plot = plot(p_biomass, p_substrate_products, p_temperature, p_feeding, layout=(2,2), size=(900,600))
+# p_temperature = scatter!(p_temperature, df.time, df.fermentor_temperature, label="Fermentor Temperature", color=:red)
+# scatter!(p_temperature, df.time, df.jacket_temperature, label="Jacket Temperature", color=:blue)
+# p_feeding = scatter!(p_feeding, df.time, df.F_feed, label="Feed Rate", color=:green)
+# p_biomass = scatter!(p_biomass, df.time, df.X_latent, label="X_latent", color=:orange)
+# scatter!(p_biomass, df.time, df.X_active, label="X_active", color=:green)
+# scatter!(p_biomass, df.time, df.X_dead, label="X_dead", color=:red)
+# scatter!(p_biomass, df.time, df.X_total, label="Total Biomass", color=:black)
+# p_substrate_products = scatter!(p_substrate_products, df.time, df.glucose, label="Glucose", color=:gray)
+# scatter!(p_substrate_products, df.time, df.metabolite, label="Metabolite", color=:brown)
+# scatter!(p_substrate_products, df.time, df.ethyl_acetate, label="Ethyl Acetate", color=:pink)
+# scatter!(p_substrate_products, df.time, df.diacetyl, label="Diacetyl", color=:purple)
+# final_plot = plot(p_biomass, p_substrate_products, p_temperature, p_feeding, layout=(2,2), size=(900,600))

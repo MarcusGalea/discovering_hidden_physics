@@ -461,7 +461,7 @@ end
 
 function define_loss_function(model::HybridModel, obs::Dict, measurements::DataFrame, u0map; 
                               conditions::Dict = Dict("cond1" => u0map), 
-                              tspan::Tuple = (0.0, masximum(measurements.time)),
+                              tspan::Tuple = (0.0, maximum(measurements.time)),
                               alg = Tsit5(),
                               ens_alg = EnsembleDistributed(),
                               include_plot = false,
